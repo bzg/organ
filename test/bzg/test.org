@@ -1,6 +1,10 @@
 #+TITLE: Test Document
 #+AUTHOR: Test Author
+#+AUTHOR: Second Author
 #+DATE: 2025-01-15
+#+SUBTITLE: A Comprehensive Test
+#+EMAIL: test@example.com
+#+LANGUAGE: en
 #+OPTIONS: toc:t num:t H:3
 
 Some top-level paragraph with *bold*, /italic/, _underline_,
@@ -21,13 +25,18 @@ Paragraph in nested section with footnote reference[fn:1].
 
 Deep content here.
 
-* TODO Second Section [#A]                                         :tag1:tag2:
-SCHEDULED: <2025-03-15 Sat 10:00>
+* TODO [#A] Second Section                                        :tag1:tag2:
+SCHEDULED: <2025-03-15 Sat 10:00 +1w>
 :PROPERTIES:
 :CUSTOM_ID: second-section
 :END:
 
 This section has a TODO keyword, priority, tags, scheduling and properties.
+
+* DONE Completed Section
+CLOSED: [2025-02-20 Thu 14:30] DEADLINE: <2025-02-28 Fri>
+
+This section has DONE keyword with CLOSED and DEADLINE planning.
 
 * Lists
 
@@ -53,11 +62,19 @@ This section has a TODO keyword, priority, tags, scheduling and properties.
 
 * Tables
 
+** Table with Header
+
 | Name  | Language | Year |
 |-------+----------+------|
 | Emacs | Lisp     | 1976 |
 | Vim   | C        | 1991 |
 | Nano  | C        | 1999 |
+
+** Table without Header
+
+| alpha | 1 |
+| beta  | 2 |
+| gamma | 3 |
 
 * Blocks
 
@@ -82,6 +99,39 @@ This is example text.
   Indentation is preserved.
 #+END_EXAMPLE
 
+** Center Block
+
+#+BEGIN_CENTER
+Centered content here.
+#+END_CENTER
+
+** Source Block with Comma Escaping
+
+#+BEGIN_SRC org
+,* This looks like a headline but is escaped
+,#+TITLE: This looks like a keyword but is escaped
+#+END_SRC
+
+* HTML and LaTeX Lines
+
+#+html: <div class="custom">Custom HTML</div>
+#+html: <hr/>
+
+#+latex: \newpage
+#+latex: \vspace{1cm}
+
+* Affiliated Keywords
+
+#+CAPTION: A captioned table
+#+NAME: my-table
+#+ATTR_HTML: :width 80% :class striped
+| x | y |
+| 1 | 2 |
+
+* Org Entities
+
+The Greek letter \alpha and arrow \rarr and ellipsis \dots here.
+
 * Inline Elements
 
 An image link: [[https://example.com/image.png]].
@@ -103,6 +153,8 @@ An internal link to [[#second-section]].
 * Footnotes
 
 Paragraph referencing another footnote[fn:2].
+
+Paragraph with an inline footnote[fn:3:This is defined inline].
 
 [fn:1] First footnote definition.
 
