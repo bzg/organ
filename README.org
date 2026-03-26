@@ -1,0 +1,83 @@
+#+title: organ
+
+[[file:organ.jpg]]
+
+A Clojure library to parse [[https://orgmode.org][Org mode]] text into an AST (EDN data).
+
+* Usage
+
+#+begin_src clojure
+(require '[bzg.organ :as organ])
+
+(organ/parse-org "* Hello\nSome *bold* text")
+;; => {:type :document, :title "Untitled Document", :children [...]}
+
+(organ/format-ast-as-edn (organ/parse-org (slurp "notes.org")))
+#+end_src
+
+Text fields in the AST preserve raw Org markup. Rendering is left to
+consumers (see [[https://github.com/bzg/hop][hop]]).
+
+Filter and clean:
+
+#+begin_src clojure
+(-> (organ/parse-org org-string)
+    (organ/filter-ast {:level-limit 2 :title-pattern #"TODO"})
+    organ/clean-node)
+#+end_src
+
+* Install
+
+As a Clojure CLI dependency:
+
+#+begin_src clojure
+org.clojars.bzg/organ {:mvn/version "0.1.0"}
+#+end_src
+
+Or as a git dependency:
+
+#+begin_src clojure
+io.github.bzg/organ {:git/tag "v0.1.0" :git/sha "..."}
+#+end_src
+
+Works with both Clojure and [[https://babashka.org][Babashka]] (no external deps).
+
+* Test
+
+: ~$ bb test
+
+* Deploy
+
+Set your Clojars credentials in the environment:
+
+: export CLOJARS_USERNAME=your-username
+: export CLOJARS_PASSWORD=your-deploy-token
+
+Build the jar and deploy:
+
+: clj -T:build deploy
+
+To install locally instead:
+
+: clj -T:build install
+
+To just build the jar without deploying:
+
+: clj -T:build jar
+
+The version is set in =build.clj=.
+
+* Feedback
+
+Send an email to *bzg@bzg.fr*.
+
+* Support the Clojure(script) ecosystem
+
+If you like Clojure(script), please consider supporting maintainers by
+donating to [[https://clojuriststogether.org][clojuriststogether.org]].
+
+* License
+
+Copyright © 2026 Bastien Guerry
+
+Distributed under the Eclipse Public License 2.0.

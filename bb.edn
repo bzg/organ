@@ -1,0 +1,5 @@
+{:paths ["src" "test"]
+ :tasks
+ {test {:doc  "Run organ tests"
+        :task (do (require 'bzg.organ-test)
+                  ((resolve 'bzg.organ-test/test-all)))}}}

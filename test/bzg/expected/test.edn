@@ -1,0 +1,215 @@
+{:title "Test Document",
+ :meta
+ {:title "Test Document",
+  :author "Test Author",
+  :date "2025-01-15",
+  :options "toc:t num:t H:3",
+  :_order [:title :author :date :options],
+  :_raw
+  ["#+TITLE: Test Document"
+   "#+AUTHOR: Test Author"
+   "#+DATE: 2025-01-15"
+   "#+OPTIONS: toc:t num:t H:3"]},
+ :children
+ [{:content
+   "Some top-level paragraph with **bold**, *italic*, _underline_, ~~strikethrough~~, `code`, and `verbatim` markup.",
+   :type :paragraph}
+  {:content
+   "A second paragraph with a [link with description](https://example.com) and a bare link [https://example.com](https://example.com).",
+   :type :paragraph}
+  {:path ["First Section"],
+   :blank-lines-before 1,
+   :children
+   [{:content "Paragraph in first section.", :type :paragraph}
+    {:path ["First Section" "Nested Section"],
+     :blank-lines-before 1,
+     :children
+     [{:content
+       "Paragraph in nested section with footnote reference[^1].",
+       :type :paragraph}
+      {:path ["First Section" "Nested Section" "Deep Section"],
+       :blank-lines-before 1,
+       :children [{:content "Deep content here.", :type :paragraph}],
+       :type :section,
+       :blank-lines-after-title 1,
+       :title "Deep Section",
+       :level 3}],
+     :type :section,
+     :blank-lines-after-title 1,
+     :title "Nested Section",
+     :level 2}],
+   :type :section,
+   :blank-lines-after-title 1,
+   :title "First Section",
+   :level 1}
+  {:path ["Second Section [#A]"],
+   :properties ([:custom_id "second-section"]),
+   :tags ["tag1" "tag2"],
+   :blank-lines-before 1,
+   :children
+   [{:content
+     "This section has a TODO keyword, priority, tags, scheduling and properties.",
+     :type :paragraph}],
+   :type :section,
+   :blank-lines-after-title 1,
+   :title "Second Section [#A]",
+   :level 1,
+   :todo :TODO,
+   :planning {:scheduled "2025-03-15T10:00"}}
+  {:path ["Lists"],
+   :blank-lines-before 1,
+   :children
+   [{:path ["Lists" "Unordered List"],
+     :blank-lines-before 0,
+     :children
+     [{:items
+       [{:content "First item", :type :list-item}
+        {:content "Second item with **bold**", :type :list-item}
+        {:content "Third item",
+         :children
+         [{:items
+           [{:content "Nested item one", :type :list-item}
+            {:content "Nested item two", :type :list-item}],
+           :ordered false,
+           :type :list}],
+         :type :list-item}],
+       :ordered false,
+       :type :list}],
+     :type :section,
+     :blank-lines-after-title 1,
+     :title "Unordered List",
+     :level 2}
+    {:path ["Lists" "Ordered List"],
+     :blank-lines-before 1,
+     :children
+     [{:items
+       [{:content "First", :type :list-item}
+        {:content "Second", :type :list-item}
+        {:content "Third", :type :list-item}],
+       :ordered true,
+       :type :list}],
+     :type :section,
+     :blank-lines-after-title 1,
+     :title "Ordered List",
+     :level 2}
+    {:path ["Lists" "Description List"],
+     :blank-lines-before 1,
+     :children
+     [{:items
+       [{:term "Emacs",
+         :definition "A self-documenting text editor",
+         :type :list-item}
+        {:term "Vim",
+         :definition "A modal text editor",
+         :type :list-item}
+        {:term "Nano",
+         :definition "A simple terminal editor",
+         :type :list-item}],
+       :ordered false,
+       :description "Emacs",
+       :type :list}],
+     :type :section,
+     :blank-lines-after-title 1,
+     :title "Description List",
+     :level 2}],
+   :type :section,
+   :blank-lines-after-title 1,
+   :title "Lists",
+   :level 1}
+  {:path ["Tables"],
+   :blank-lines-before 1,
+   :children
+   [{:rows
+     [["Name" "Language" "Year"]
+      ["Emacs" "Lisp" "1976"]
+      ["Vim" "C" "1991"]
+      ["Nano" "C" "1999"]],
+     :has-header true,
+     :type :table}],
+   :type :section,
+   :blank-lines-after-title 1,
+   :title "Tables",
+   :level 1}
+  {:path ["Blocks"],
+   :blank-lines-before 1,
+   :children
+   [{:path ["Blocks" "Source Block"],
+     :blank-lines-before 0,
+     :children
+     [{:language "clojure",
+       :args "clojure",
+       :content "(defn hello [name]\n  (println \"Hello,\" name))",
+       :type :src-block}],
+     :type :section,
+     :blank-lines-after-title 1,
+     :title "Source Block",
+     :level 2}
+    {:path ["Blocks" "Quote Block"],
+     :blank-lines-before 1,
+     :children
+     [{:content
+       "The best way to predict the future is to invent it.\n-- Alan Kay",
+       :type :quote-block}],
+     :type :section,
+     :blank-lines-after-title 1,
+     :title "Quote Block",
+     :level 2}
+    {:path ["Blocks" "Example Block"],
+     :blank-lines-before 1,
+     :children
+     [{:block-type :example,
+       :content "This is example text.\n  Indentation is preserved.",
+       :type :block}],
+     :type :section,
+     :blank-lines-after-title 1,
+     :title "Example Block",
+     :level 2}],
+   :type :section,
+   :blank-lines-after-title 1,
+   :title "Blocks",
+   :level 1}
+  {:path ["Inline Elements"],
+   :blank-lines-before 1,
+   :children
+   [{:content
+     "An image link: ![https://example.com/image.png](https://example.com/image.png).",
+     :type :paragraph}
+    {:content
+     "An image with description: [A photo](https://example.com/photo.jpg).",
+     :type :paragraph}
+    {:content "A mailto link: [Email me](mailto:test@example.com).",
+     :type :paragraph}
+    {:content "An internal link to [second-section](#second-section).",
+     :type :paragraph}],
+   :type :section,
+   :blank-lines-after-title 1,
+   :title "Inline Elements",
+   :level 1}
+  {:path ["Fixed Width and Comments"],
+   :blank-lines-before 1,
+   :children
+   [{:content "This is fixed width text.\nSecond fixed width line.",
+     :type :fixed-width}
+    {:content "This is a comment.\nSecond comment line.",
+     :type :comment}],
+   :type :section,
+   :blank-lines-after-title 1,
+   :title "Fixed Width and Comments",
+   :level 1}
+  {:path ["Footnotes"],
+   :blank-lines-before 1,
+   :children
+   [{:content "Paragraph referencing another footnote[^2].",
+     :type :paragraph}
+    {:label "1",
+     :content "First footnote definition.",
+     :type :footnote-def}
+    {:label "2",
+     :content "Second footnote definition.",
+     :type :footnote-def}],
+   :type :section,
+   :blank-lines-after-title 1,
+   :title "Footnotes",
+   :level 1}],
+ :type :document}
+

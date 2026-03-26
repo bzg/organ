@@ -1,0 +1,17 @@
+target/
+.cpcache/
+.nrepl-port
+data/
+*.class
+.lsp/
+.clj-kondo/
+config.edn
+todo.org
+public/
+logs/
+*aux
+*log
+*pdf
+*texi
+*toc
+*html

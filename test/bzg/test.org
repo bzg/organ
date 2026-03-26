@@ -1,0 +1,109 @@
+#+TITLE: Test Document
+#+AUTHOR: Test Author
+#+DATE: 2025-01-15
+#+OPTIONS: toc:t num:t H:3
+
+Some top-level paragraph with *bold*, /italic/, _underline_,
++strikethrough+, ~code~, and =verbatim= markup.
+
+A second paragraph with a [[https://example.com][link with description]]
+and a bare link [[https://example.com]].
+
+* First Section
+
+Paragraph in first section.
+
+** Nested Section
+
+Paragraph in nested section with footnote reference[fn:1].
+
+*** Deep Section
+
+Deep content here.
+
+* TODO Second Section [#A]                                         :tag1:tag2:
+SCHEDULED: <2025-03-15 Sat 10:00>
+:PROPERTIES:
+:CUSTOM_ID: second-section
+:END:
+
+This section has a TODO keyword, priority, tags, scheduling and properties.
+
+* Lists
+
+** Unordered List
+
+- First item
+- Second item with *bold*
+- Third item
+  - Nested item one
+  - Nested item two
+
+** Ordered List
+
+1. First
+2. Second
+3. Third
+
+** Description List
+
+- Emacs :: A self-documenting text editor
+- Vim :: A modal text editor
+- Nano :: A simple terminal editor
+
+* Tables
+
+| Name  | Language | Year |
+|-------+----------+------|
+| Emacs | Lisp     | 1976 |
+| Vim   | C        | 1991 |
+| Nano  | C        | 1999 |
+
+* Blocks
+
+** Source Block
+
+#+BEGIN_SRC clojure
+(defn hello [name]
+  (println "Hello," name))
+#+END_SRC
+
+** Quote Block
+
+#+BEGIN_QUOTE
+The best way to predict the future is to invent it.
+-- Alan Kay
+#+END_QUOTE
+
+** Example Block
+
+#+BEGIN_EXAMPLE
+This is example text.
+  Indentation is preserved.
+#+END_EXAMPLE
+
+* Inline Elements
+
+An image link: [[https://example.com/image.png]].
+
+An image with description: [[https://example.com/photo.jpg][A photo]].
+
+A mailto link: [[mailto:test@example.com][Email me]].
+
+An internal link to [[#second-section]].
+
+* Fixed Width and Comments
+
+: This is fixed width text.
+: Second fixed width line.
+
+# This is a comment.
+# Second comment line.
+
+* Footnotes
+
+Paragraph referencing another footnote[fn:2].
+
+[fn:1] First footnote definition.
+
+[fn:2] Second footnote definition.
