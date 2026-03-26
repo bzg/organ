@@ -1,7 +1,5 @@
 #+title: organ
 
-[[file:organ.jpg]]
-
 A Clojure library to parse [[https://orgmode.org][Org mode]] text into an AST (EDN data).
 
 * Usage
