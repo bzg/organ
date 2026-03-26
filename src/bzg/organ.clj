@@ -118,7 +118,7 @@
                       kw-key (keyword (str/lower-case kw))
                       rest-str (str/trim (subs after-kw (count ts-match)))]
                   (recur rest-str (cond-> (assoc result kw-key iso)
-                                    repeater (assoc (keyword (str (str/lower-case kw) "-repeat")) repeater))))
+                                    repeater (assoc (-> kw str/lower-case (str "-repeat") keyword) repeater))))
                 (when (seq result) result)))
             (when (seq result) result)))))))
 
@@ -328,8 +328,11 @@
 
 (def ^:private entity-pattern
   "Pre-compiled regex alternation of all org entity keys, sorted by descending length for safe matching."
-  (re-pattern (str/join "|" (map #(java.util.regex.Pattern/quote %)
-                                 (sort-by (comp - count) (keys org-entities))))))
+  (->> (keys org-entities)
+       (sort-by (comp - count))
+       (map #(java.util.regex.Pattern/quote %))
+       (str/join "|")
+       re-pattern))
 
 (defn- replace-entities
   "Replace Org entities (\\name) with their Unicode equivalents in a single pass."
@@ -465,7 +468,9 @@
      :todo (when todo (keyword todo))
      :priority priority
      :tags (when tags
-             (vec (filter seq (str/split (str/replace tags #"^:|:$" "") #":"))))}
+             (->> (str/split (str/replace tags #"^:|:$" "") #":")
+                  (filter seq)
+                  vec))}
     (when-let [[_ stars title] (re-matches headline-pattern line)]
       {:level (count stars) :title (str/trim title)})))
 
@@ -718,9 +723,9 @@
 
         (re-matches table-pattern line)
         (let [row (->> (str/split (str/trim line) #"\|" -1)
-                       rest        ; drop leading empty from split
-                                   butlast     ; drop trailing empty from split
-                                               (mapv str/trim))]
+                       rest
+                       butlast
+                       (mapv str/trim))]
           (recur more (conj rows row) has-separator))
 
         :else
@@ -918,8 +923,8 @@
   (let [current-level (count path-stack)]
     (cond
       (> new-level current-level) (conj path-stack title)
-      (= new-level current-level) (conj (vec (butlast path-stack)) title)
-      :else (conj (vec (take (dec new-level) path-stack)) title))))
+      (= new-level current-level) (-> path-stack butlast vec (conj title))
+      :else (-> (take (dec new-level) path-stack) vec (conj title)))))
 
 (defn- parse-sections
   ([indexed-lines current-path]
@@ -1062,13 +1067,17 @@
     [(flatten-deep-sections node level-limit-inclusive)]))
 
 (defn filter-ast [ast opts]
-  (let [filter-needed (some (comp some? val) (dissoc opts :level-limit-inclusive))
-        filtered (if filter-needed (filter-ast-node ast opts) ast)]
-    (flatten-deep-sections filtered (:level-limit-inclusive opts))))
+  (-> (if (some (comp some? val) (dissoc opts :level-limit-inclusive))
+        (filter-ast-node ast opts)
+        ast)
+      (flatten-deep-sections (:level-limit-inclusive opts))))
 
 ;; Content Cleaning
 (defn- clean-properties [properties]
-  (not-empty (into {} (remove (fn [[_ v]] (or (nil? v) (str/blank? (str v)))) properties))))
+  (->> properties
+       (remove (fn [[_ v]] (or (nil? v) (str/blank? (str v)))))
+       (into {})
+       not-empty))
 
 (defn- content-blank? [node]
   (case (:type node)
