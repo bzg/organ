@@ -7,7 +7,7 @@
             [deps-deploy.deps-deploy :as dd]))
 
 (def lib 'org.clojars.bzg/organ)
-(def version "0.3.0")
+(def version "0.3.1")
 (def class-dir "target/classes")
 (def jar-file (format "target/%s-%s.jar" (name lib) version))
 (def basis (delay (b/create-basis {:project "deps.edn"})))

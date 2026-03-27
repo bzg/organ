@@ -672,8 +672,9 @@
       (if-let [[_ key value] (re-matches metadata-pattern line)]
         (let [kw       (keyword (str/lower-case key))
               kw-str   (str/lower-case key)]
-          ;; Only keep metadata that affects rendering
-          (if (contains? preamble-metadata-keywords kw-str)
+          (cond
+            ;; Known preamble metadata: collect it
+            (contains? preamble-metadata-keywords kw-str)
             (let [existing (get meta kw)
                   v        (str/trim value)
                   new-val  (cond
@@ -684,7 +685,11 @@
                      (assoc meta kw new-val)
                      (if (some #{kw} order) order (conj order kw))
                      (conj raw line)))
-            ;; Skip non-rendering metadata lines
+            ;; Content directives (#+html:, #+latex:, #+BEGIN_*): stop metadata parsing
+            (or (html-line? line) (latex-line? line) (block-begin? line))
+            [(assoc meta :_order order :_raw raw) remaining]
+            ;; Other unknown keywords: skip
+            :else
             (recur more meta order raw)))
         (if (str/blank? line)
           (recur more meta order raw)
