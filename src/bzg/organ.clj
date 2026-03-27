@@ -47,7 +47,7 @@
 (def ^:private table-separator-pattern #"^\s*\|-.*\|\s*$")
 (def ^:private generic-block-begin-pattern #"(?i)^\s*#\+BEGIN_(\w+)(?:\s+(.*))?$")
 (def ^:private metadata-pattern #"^\s*#\+(\w+):\s*(.*)$")
-(def ^:private comment-pattern #"^\s*#(?!\+).*$")
+(def ^:private comment-pattern #"^\s*#(?:\s.*|$)")
 (def ^:private html-line-pattern #"(?i)^\s*#\+html:\s*(.*)$")
 (def ^:private latex-line-pattern #"(?i)^\s*#\+latex:\s*(.*)$")
 (def ^:private block-begin-pattern #"(?i)^\s*#\+BEGIN.*$")
@@ -78,9 +78,9 @@
     (let [pad2 #(if (= 1 (count %)) (str "0" %) %)
           ;; Active timestamp groups: 0-6, Inactive: 7-13
           [ay am ad ah amin aeh aemin
-           iy im id ih imin _   _] groups
+           iy im id ih imin ieh iemin] groups
           [y m d h min eh emin] (if ay [ay am ad ah amin aeh aemin]
-                                  [iy im id ih imin nil nil])]
+                                  [iy im id ih imin ieh iemin])]
       (if h
         (let [start (str y "-" m "-" d "T" (pad2 h) ":" min)]
           (if eh
@@ -327,10 +327,11 @@
    "\\checkmark" "✓"})
 
 (def ^:private entity-pattern
-  "Pre-compiled regex alternation of all org entity keys, sorted by descending length for safe matching."
+  "Pre-compiled regex alternation of all org entity keys, sorted by descending length for safe matching.
+   Entities only match when NOT followed by an alphabetic character (Org mode convention)."
   (->> (keys org-entities)
        (sort-by (comp - count))
-       (map #(java.util.regex.Pattern/quote %))
+       (map #(str (java.util.regex.Pattern/quote %) "(?![a-zA-Z])"))
        (str/join "|")
        re-pattern))
 
@@ -719,7 +720,7 @@
         (re-matches table-separator-pattern line)
         (if (seq rows)
           (recur more rows true)
-          [(make-node :table :rows rows :has-header false :line start-line-num) remaining])
+          (recur more rows false))
 
         (re-matches table-pattern line)
         (let [row (->> (str/split (str/trim line) #"\|" -1)
@@ -976,25 +977,51 @@
                (recur rest-after-subsections (conj sections new-section) path-stack next-blanks))))
          [sections remaining blanks-before])))))
 
+(defn- replace-entities-in-node
+  "Walk the AST and replace Org entities in prose text fields.
+   Skips literal content: src blocks, generic blocks, fixed-width, and latex lines."
+  [node]
+  (case (:type node)
+    :document   (-> node
+                    (update :title #(when % (replace-entities %)))
+                    (update :children #(mapv replace-entities-in-node %)))
+    :section    (-> node
+                    (update :title #(when % (replace-entities %)))
+                    (update :children #(mapv replace-entities-in-node %)))
+    :paragraph  (update node :content #(when % (replace-entities %)))
+    :list       (update node :items #(mapv replace-entities-in-node %))
+    :list-item  (-> node
+                    (update :content #(when % (replace-entities %)))
+                    (update :term #(when % (replace-entities %)))
+                    (update :definition #(when % (replace-entities %)))
+                    (update :children #(mapv replace-entities-in-node %)))
+    :table      (update node :rows
+                        (fn [rows] (mapv (fn [row] (mapv replace-entities row)) rows)))
+    :quote-block   (update node :content #(when % (replace-entities %)))
+    :comment       (update node :content #(when % (replace-entities %)))
+    :footnote-def  (update node :content #(when % (replace-entities %)))
+    ;; Literal content — no entity replacement:
+    ;; :src-block, :block, :fixed-width, :html-line, :latex-line
+    node))
+
 (defn parse-org
   ([org-content] (parse-org org-content {}))
   ([org-content {:keys [unwrap?] :or {unwrap? true}}]
    (binding [*parse-errors* (volatile! [])]
-     (let [;; First replace org entities, then optionally unwrap
-           with-entities (replace-entities org-content)
-           ;; Use unwrap-text-indexed to preserve original line numbers
+     (let [;; Use unwrap-text-indexed to preserve original line numbers
            indexed-lines (if unwrap?
-                           (unwrap-text-indexed with-entities)
-                           (index-lines (str/split-lines with-entities)))
+                           (unwrap-text-indexed org-content)
+                           (index-lines (str/split-lines org-content)))
            [meta rest-after-meta] (parse-metadata indexed-lines)
            title (get meta :title "Untitled Document")
            [top-level-content rest-after-content content-trailing-blanks] (parse-content rest-after-meta)
            [sections _ _] (parse-sections rest-after-content [] nil content-trailing-blanks)
            errors @*parse-errors*
-           doc (make-node :document
-                          :title title
-                          :meta meta
-                          :children (vec (concat top-level-content sections)))]
+           doc (-> (make-node :document
+                              :title title
+                              :meta meta
+                              :children (vec (concat top-level-content sections)))
+                   replace-entities-in-node)]
        (if (seq errors)
          (assoc doc :parse-errors errors)
          doc)))))
