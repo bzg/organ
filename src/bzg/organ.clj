@@ -36,10 +36,12 @@
   (and (some? s) (not (str/blank? s))))
 
 ;; Regex Patterns
-(def ^:private headline-full-pattern #"^(\*+)\s+(?:(TODO|DONE)\s+)?(?:\[#([A-Z])\]\s+)?(.+?)(?:\s+(:[:\w]+:))?\s*$")
+(def ^:private headline-full-pattern #"^(\*+)\s+(?:(TODO|DONE)\s+)?(?:\[#([A-Z])\]\s+)?(.+?)(?:\s+(:[:\w@]+:))?\s*$")
 (def ^:private headline-pattern #"^(\*+)\s+(.*)$")
 (def ^:private property-drawer-start-pattern #"^\s*:PROPERTIES:\s*$")
 (def ^:private property-drawer-end-pattern #"^\s*:END:\s*$")
+(def ^:private drawer-start-pattern #"^\s*:([A-Za-z][\w_-]*?):\s*$")
+(def ^:private drawer-end-pattern #"(?i)^\s*:END:\s*$")
 (def ^:private property-pattern #"^\s*:([\w_-]+):\s*(.*)$")
 (def ^:private list-item-pattern #"^(\s*)(-|\+|\*|\d+[.)])\s+(.*)$")
 (def ^:private description-item-pattern #"^(.+?)\s+::(?:\s+(.*))?$")
@@ -159,6 +161,9 @@
   (or (re-matches property-drawer-start-pattern line)
       (re-matches property-drawer-end-pattern line)
       (re-matches property-pattern line)))
+(defn- drawer-start? [line]
+  (and (re-matches drawer-start-pattern line)
+       (not (re-matches property-drawer-start-pattern line))))
 (defn- list-item? [line] (re-matches list-item-simple-pattern line))
 (defn- affiliated-keyword? [line] (re-matches affiliated-keyword-pattern line))
 (defn- index-lines [lines] (map-indexed (fn [i line] {:line line :num (inc i)}) lines))
@@ -205,6 +210,10 @@
       (metadata-line? next-line)
       (property-line? current-line)
       (property-line? next-line)
+      (drawer-start? current-line)
+      (drawer-start? next-line)
+      (re-matches drawer-end-pattern current-line)
+      (re-matches drawer-end-pattern next-line)
       (planning-line? current-line)
       (planning-line? next-line)
       (list-item? next-line)))
@@ -525,6 +534,31 @@
             (recur more properties)))))
     [nil {} indexed-lines]))
 
+(defn- parse-drawer
+  "Parse a generic drawer (:NAME: ... :END:).
+   Returns [drawer-node remaining-lines] or nil."
+  [indexed-lines]
+  (let [{:keys [line num]} (first indexed-lines)]
+    (when-let [[_ drawer-name] (re-matches drawer-start-pattern line)]
+      (when (not (re-matches property-drawer-start-pattern line))
+        (loop [[{:keys [line]} & more :as remaining] (rest indexed-lines)
+               content []]
+          (cond
+            (empty? remaining)
+            (do (add-parse-error! num (str "Unterminated drawer " drawer-name))
+                [(make-node :drawer :drawer-name (str/lower-case drawer-name)
+                            :content (str/join "\n" content) :line num
+                            :warning (str "Unterminated drawer " drawer-name))
+                 []])
+
+            (re-matches drawer-end-pattern line)
+            [(make-node :drawer :drawer-name (str/lower-case drawer-name)
+                        :content (str/join "\n" content) :line num)
+             more]
+
+            :else
+            (recur more (conj content line))))))))
+
 (defn- parse-description-item
   "Check if content matches a description list item (term :: definition).
    Returns {:term term :definition definition} or nil."
@@ -823,6 +857,7 @@
                 (table-line? line)
                 (re-matches generic-block-begin-pattern line)
                 (re-matches property-drawer-start-pattern line)
+                (drawer-start? line)
                 (comment-line? line)
                 (fixed-width-line? line)
                 (footnote-def? line)
@@ -891,6 +926,11 @@
               drawer-node (make-node :property-drawer :properties properties
                                      :line (:num (first remaining)))]
           (recur rest-lines (conj nodes drawer-node) nil 0))
+
+        (drawer-start? line)
+        (if-let [[drawer-node rest-lines] (parse-drawer remaining)]
+          (recur rest-lines (conj nodes drawer-node) nil 0)
+          (recur more nodes pending-affiliated 0))
 
         (ignored-keyword-line? line)
         (recur more nodes pending-affiliated 0)
@@ -1108,7 +1148,7 @@
 
 (defn- content-blank? [node]
   (case (:type node)
-    (:paragraph :comment :fixed-width :quote-block :src-block :block :footnote-def :html-line :latex-line) (str/blank? (:content node))
+    (:paragraph :comment :fixed-width :quote-block :src-block :block :footnote-def :html-line :latex-line :drawer) (str/blank? (:content node))
     :list (empty? (:items node))
     :table (empty? (:rows node))
     false))
@@ -1132,7 +1172,7 @@
           :list (update node :items #(mapv clean-node %))
           :table (update node :rows #(mapv (fn [row] (mapv str/trim row)) %))
           :property-drawer (update node :properties clean-properties)
-          (:paragraph :quote-block :comment :footnote-def :block :html-line :latex-line) (update node :content #(when % (str/trim %)))
+          (:paragraph :quote-block :comment :footnote-def :block :html-line :latex-line :drawer) (update node :content #(when % (str/trim %)))
           node)]
     (remove-empty-vals (dissoc cleaned :line))))
 

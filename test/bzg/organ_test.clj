@@ -340,6 +340,77 @@
                     true
                     (boolean (seq (:parse-errors ast)))))
 
+         ;; --- Generic drawer (LOGBOOK) ---
+         (let [ast (organ/parse-org "* S\n:LOGBOOK:\nCLOCK: [2025-01-15 Wed 10:00]\n:END:\nBody")]
+           (assert= "drawer type"
+                    :drawer
+                    (-> ast :children first :children first :type)))
+
+         (let [ast (organ/parse-org "* S\n:LOGBOOK:\nCLOCK: [2025-01-15 Wed 10:00]\n:END:\nBody")]
+           (assert= "drawer name"
+                    "logbook"
+                    (-> ast :children first :children first :drawer-name)))
+
+         (let [ast (organ/parse-org "* S\n:LOGBOOK:\nCLOCK: [2025-01-15 Wed 10:00]\n:END:\nBody")]
+           (assert= "drawer content"
+                    "CLOCK: [2025-01-15 Wed 10:00]"
+                    (-> ast :children first :children first :content)))
+
+         (let [ast (organ/parse-org "* S\n:LOGBOOK:\nEntry\n:END:\nBody")]
+           (assert= "body after drawer"
+                    "Body"
+                    (-> ast :children first :children second :content)))
+
+         ;; --- Unterminated drawer ---
+         (let [ast (organ/parse-org "* S\n:LOGBOOK:\nEntry")]
+           (assert= "unterminated drawer has parse-errors"
+                    true
+                    (boolean (seq (:parse-errors ast)))))
+
+         ;; --- RESULTS drawer ---
+         (let [ast (organ/parse-org "* S\n:RESULTS:\nsome output\n:END:")]
+           (assert= "results drawer"
+                    "results"
+                    (-> ast :children first :children first :drawer-name)))
+
+         ;; --- Tags with @ ---
+         (assert= "tags with @"
+                  ["@home" "work"]
+                  (-> (organ/parse-org "* Heading :@home:work:")
+                      :children first :tags))
+
+         ;; --- #hashtag is not a comment ---
+         (assert= "#hashtag not a comment"
+                  :paragraph
+                  (-> (organ/parse-org "* S\n#hashtag")
+                      :children first :children first :type))
+
+         ;; --- Entity not replaced in src block ---
+         (assert= "entity preserved in src block"
+                  false
+                  (str/includes?
+                   (-> (organ/parse-org "#+BEGIN_SRC python\nx = \"\\alpha\"\n#+END_SRC")
+                       :children first :content)
+                   "α"))
+
+         ;; --- Entity not matched as word prefix ---
+         (assert= "entity not partial-matched"
+                  "The \\integers are nice"
+                  (-> (organ/parse-org "The \\integers are nice")
+                      :children first :content))
+
+         ;; --- Inactive timestamp time range ---
+         (let [ast (organ/parse-org "* DONE Task\nCLOSED: [2025-02-20 Thu 09:00-12:00]")]
+           (assert= "inactive timestamp time range"
+                    "2025-02-20T09:00/2025-02-20T12:00"
+                    (-> ast :children first :planning :closed)))
+
+         ;; --- Table with leading separator ---
+         (let [ast (organ/parse-org "|---+---|\n| a | b |")]
+           (assert= "table with leading separator"
+                    [["a" "b"]]
+                    (-> ast :children first :rows)))
+
          ;; --- Test from test.org file if available ---
          (let [test-file "test/bzg/test.org"]
            (if (.exists (java.io.File. test-file))
