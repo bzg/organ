@@ -54,12 +54,12 @@
 (def ^:private latex-line-pattern #"(?i)^\s*#\+latex:\s*(.*)$")
 (def ^:private block-begin-pattern #"(?i)^\s*#\+BEGIN.*$")
 (def ^:private fixed-width-pattern #"^\s*: (.*)$")
-(def footnote-ref-pattern #"\[fn:([^\]:]+)\]")
-(def footnote-inline-pattern #"\[fn:([^\]:]*):([^\]]+)\]")
+(def ^:private footnote-ref-pattern #"\[fn:([^\]:]+)\]")
+(def ^:private footnote-inline-pattern #"\[fn:([^\]:]*):([^\]]+)\]")
 (def ^:private footnote-def-pattern #"^\[fn:([^\]]+)\]\s*(.*)$")
-(def link-with-desc-pattern #"\[\[([^\]]+)\]\[([^\]]+)\]\]")
-(def link-without-desc-pattern #"\[\[([^\]]+)\]\]")
-(def link-type-pattern #"^(file|id|mailto|http|https|ftp|news|shell|elisp|doi):(.*)$")
+(def ^:private link-with-desc-pattern #"\[\[([^\]]+)\]\[([^\]]+)\]\]")
+(def ^:private link-without-desc-pattern #"\[\[([^\]]+)\]\]")
+(def ^:private link-type-pattern #"^(file|id|mailto|http|https|ftp|news|shell|elisp|doi):(.*)$")
 (def ^:private affiliated-keyword-pattern #"(?i)^\s*#\+(attr_\w+|caption|name|header|results):\s*(.*)$")
 (def ^:private list-item-simple-pattern #"^\s*(?:[-+*]|\d+[.)])\s+.*$")
 
@@ -348,6 +348,182 @@
   "Replace Org entities (\\name) with their Unicode equivalents in a single pass."
   [text]
   (str/replace text entity-pattern #(get org-entities % %)))
+
+;; Inline Parsing
+;; Parses Org inline markup into a vector of typed nodes.
+
+(def ^:private emphasis-pre-set
+  #{\space \tab \- \( \{ \' \" \return \newline})
+
+(def ^:private emphasis-post-set
+  #{\space \tab \- \. \, \; \: \! \? \' \" \) \} \[ \return \newline})
+
+(defn- emphasis-pre? [text i]
+  (or (zero? i) (contains? emphasis-pre-set (.charAt text (dec i)))))
+
+(defn- emphasis-post? [text i]
+  (or (= i (dec (.length text)))
+      (contains? emphasis-post-set (.charAt text (inc i)))))
+
+(defn- find-close-marker
+  "Find matching close position for an emphasis or literal marker.
+   Returns index of closing marker, or nil."
+  [text open marker]
+  (let [len (.length text)
+        content-start (inc open)]
+    (when (and (< content-start len)
+               (not (Character/isWhitespace (.charAt text content-start))))
+      (loop [j content-start]
+        (when (< j len)
+          (if (and (= (.charAt text j) marker)
+                   (> j content-start)
+                   (not (Character/isWhitespace (.charAt text (dec j))))
+                   (emphasis-post? text j))
+            j
+            (recur (inc j))))))))
+
+(defn- classify-link-url
+  "Classify a link URL into type and target."
+  [url]
+  (cond
+    (str/starts-with? url "*")  {:link-type :heading :target (subs url 1)}
+    (str/starts-with? url "#")  {:link-type :custom-id :target (subs url 1)}
+    :else (if-let [[_ t target] (re-matches link-type-pattern url)]
+            {:link-type (keyword t) :target target}
+            {:link-type nil :target url})))
+
+(declare ^:private do-parse-inline)
+
+(defn- try-parse-link [text i]
+  (let [s (subs text i)]
+    (or (when-let [[full url desc] (re-find #"^\[\[([^\]]*)\]\[([^\]]*)\]\]" s)]
+          (let [{:keys [link-type target]} (classify-link-url url)]
+            [(cond-> {:type :link :url url :children (do-parse-inline desc)}
+               link-type (assoc :link-type link-type)
+               target    (assoc :target target))
+             (+ i (count full))]))
+        (when-let [[full url] (re-find #"^\[\[([^\]]*)\]\]" s)]
+          (let [{:keys [link-type target]} (classify-link-url url)]
+            [(cond-> {:type :link :url url}
+               link-type (assoc :link-type link-type)
+               target    (assoc :target target))
+             (+ i (count full))])))))
+
+(defn- try-parse-footnote [text i]
+  (let [s (subs text i)]
+    (or (when-let [[full label content] (re-find #"^\[fn:([^\]:]*):([^\]]+)\]" s)]
+          [{:type :footnote-inline :label label :children (do-parse-inline content)}
+           (+ i (count full))])
+        (when-let [[full label] (re-find #"^\[fn:([^\]]+)\]" s)]
+          [{:type :footnote-ref :label label}
+           (+ i (count full))]))))
+
+(defn- try-parse-timestamp [text i active?]
+  (let [s (subs text i)
+        pat (if active?
+              #"^(<\d{4}-\d{2}-\d{2}\s+\S+(?:\s+\d{1,2}:\d{2}(?:-\d{1,2}:\d{2})?)?(?:\s+[.+]?[+]?\d+[hdwmy])*\s*>)"
+              #"^(\[\d{4}-\d{2}-\d{2}\s+\S+(?:\s+\d{1,2}:\d{2}(?:-\d{1,2}:\d{2})?)?(?:\s+[.+]?[+]?\d+[hdwmy])*\s*\])")]
+    (when-let [[full raw] (re-find pat s)]
+      (let [parsed (parse-org-timestamp raw)
+            repeater (parse-org-repeater raw)]
+        [(cond-> {:type :timestamp :raw raw :value parsed :active active?}
+           repeater (assoc :repeater repeater))
+         (+ i (count full))]))))
+
+(def ^:private emphasis-type {\* :bold \/ :italic \_ :underline \+ :strike})
+(def ^:private literal-type {\~ :code \= :verbatim})
+
+(defn- do-parse-inline [text]
+  (let [len (.length text)
+        buf (StringBuilder.)
+        flush-buf! (fn [nodes]
+                     (if (pos? (.length buf))
+                       (let [t (replace-entities (.toString buf))]
+                         (.setLength buf 0)
+                         (conj nodes {:type :text :value t}))
+                       nodes))
+        skip! (fn [c] (.append buf c))]
+    (loop [i 0 nodes []]
+      (if (>= i len)
+        (flush-buf! nodes)
+        (let [c (.charAt text i)]
+          (cond
+            ;; Link: [[
+            (and (= c \[) (< (inc i) len) (= (.charAt text (inc i)) \[))
+            (if-let [[node end] (try-parse-link text i)]
+              (recur end (conj (flush-buf! nodes) node))
+              (do (skip! c) (recur (inc i) nodes)))
+
+            ;; Footnote: [fn:
+            (and (= c \[) (<= (+ i 4) len) (= (subs text i (+ i 4)) "[fn:"))
+            (if-let [[node end] (try-parse-footnote text i)]
+              (recur end (conj (flush-buf! nodes) node))
+              (do (skip! c) (recur (inc i) nodes)))
+
+            ;; Active timestamp: <YYYY-
+            (and (= c \<) (<= (+ i 6) len)
+                 (Character/isDigit (.charAt text (inc i))))
+            (if-let [[node end] (try-parse-timestamp text i true)]
+              (recur end (conj (flush-buf! nodes) node))
+              (do (skip! c) (recur (inc i) nodes)))
+
+            ;; Inactive timestamp: [YYYY- (not link, not footnote)
+            (and (= c \[) (<= (+ i 6) len)
+                 (not= (.charAt text (inc i)) \[)
+                 (not= (.charAt text (inc i)) \f)
+                 (Character/isDigit (.charAt text (inc i))))
+            (if-let [[node end] (try-parse-timestamp text i false)]
+              (recur end (conj (flush-buf! nodes) node))
+              (do (skip! c) (recur (inc i) nodes)))
+
+            ;; Emphasis: * / _ +
+            (and (contains? emphasis-type c) (emphasis-pre? text i))
+            (if-let [close (find-close-marker text i c)]
+              (recur (inc close)
+                     (conj (flush-buf! nodes)
+                           {:type (emphasis-type c)
+                            :children (do-parse-inline (subs text (inc i) close))}))
+              (do (skip! c) (recur (inc i) nodes)))
+
+            ;; Code/verbatim: ~ =
+            (and (contains? literal-type c) (emphasis-pre? text i))
+            (if-let [close (find-close-marker text i c)]
+              (recur (inc close)
+                     (conj (flush-buf! nodes)
+                           {:type (literal-type c)
+                            :value (subs text (inc i) close)}))
+              (do (skip! c) (recur (inc i) nodes)))
+
+            ;; Plain character
+            :else
+            (do (skip! c) (recur (inc i) nodes))))))))
+
+(defn parse-inline
+  "Parse Org inline markup into a vector of typed nodes.
+   Returns [] for nil or blank input."
+  [text]
+  (if (or (nil? text) (str/blank? text))
+    []
+    (do-parse-inline (str/trim text))))
+
+(defn inline-text
+  "Extract plain text from a vector of inline nodes."
+  [nodes]
+  (when (seq nodes)
+    (str/join
+     (map (fn [node]
+            (case (:type node)
+              :text (:value node)
+              :code (:value node)
+              :verbatim (:value node)
+              :timestamp (:raw node)
+              :footnote-ref (str "[fn:" (:label node) "]")
+              :footnote-inline ""
+              :link (if (seq (:children node))
+                      (inline-text (:children node))
+                      (:url node))
+              (if (:children node) (inline-text (:children node)) "")))
+          nodes))))
 
 (defn- unwrap-text-indexed
   "Unwrap text while preserving original line numbers.
@@ -691,12 +867,12 @@
                                  [[] []])
                   new-item (if desc-item
                              (make-node :list-item
-                                        :term (:term desc-item)
-                                        :definition definition
+                                        :term (parse-inline (:term desc-item))
+                                        :definition (parse-inline definition)
                                         :children children
                                         :line num)
                              (make-node :list-item
-                                        :content content
+                                        :content (parse-inline content)
                                         :children children
                                         :line num))]
               (recur rest-after-body
@@ -760,7 +936,7 @@
         (let [row (->> (str/split (str/trim line) #"\|" -1)
                        rest
                        butlast
-                       (mapv str/trim))]
+                       (mapv #(parse-inline (str/trim %))))]
           (recur more (conj rows row) has-separator))
 
         :else
@@ -781,9 +957,13 @@
                          :language (or (first (str/split (or args "") #"\s+")) "")
                          :args args :content (str/join "\n" unescaped-content) :line num
                          :warning warning :error-line (when warning num))
-                  "quote" (make-node
-                           :quote-block :content (str/join "\n" unescaped-content) :line num
-                           :warning warning :error-line (when warning num))
+                  "quote" (let [content-str (str/join "\n" unescaped-content)
+                               paras (->> (str/split content-str #"\n\n+")
+                                          (remove str/blank?)
+                                          (mapv #(make-node :paragraph :content (parse-inline %))))]
+                           (make-node
+                            :quote-block :children paras :line num
+                            :warning warning :error-line (when warning num)))
                   (make-node :block :block-type (keyword block-type-lower)
                              :args (when args (str/trim args))
                              :content (str/join "\n" unescaped-content)
@@ -839,7 +1019,7 @@
         (if (or (empty? remaining)
                 (not (re-matches #"^\s+\S.*$" line)))
           [(make-node :footnote-def :label label
-                      :content (str/join "\n" full-content) :line num)
+                      :content (parse-inline (str/join "\n" full-content)) :line num)
            remaining]
           (recur more2 (conj full-content (str/trim line))))))))
 
@@ -849,7 +1029,7 @@
            content []]
       (if (empty? remaining)
         (when (seq content)
-          [(make-node :paragraph :content (str/join "\n" content)
+          [(make-node :paragraph :content (parse-inline (str/join "\n" content))
                       :line start-line-num) []])
         (if (or (str/blank? line)
                 (headline? line)
@@ -866,7 +1046,7 @@
                 (affiliated-keyword? line)
                 (planning-line? line))
           (when (seq content)
-            [(make-node :paragraph :content (str/join "\n" content)
+            [(make-node :paragraph :content (parse-inline (str/join "\n" content))
                         :line start-line-num) remaining])
           (recur more (conj content line)))))))
 
@@ -977,7 +1157,8 @@
      (if (empty? remaining)
        [sections remaining blanks-before]
        (if-let [headline-data (parse-headline line)]
-         (let [{:keys [level title todo priority tags]} headline-data]
+         (let [{:keys [level title todo priority tags]} headline-data
+               title-inline (parse-inline title)]
            (if (and parent-level (<= level parent-level))
              ;; Return to parent level - pass back the blanks-before count
              ;; so parent can assign it to the next sibling
@@ -1001,7 +1182,7 @@
                    (parse-sections rest-after-content new-path-stack level content-trailing-blanks)
                    new-section (make-node :section
                                           :level level
-                                          :title title
+                                          :title title-inline
                                           :todo todo
                                           :priority priority
                                           :tags tags
@@ -1017,51 +1198,22 @@
                (recur rest-after-subsections (conj sections new-section) path-stack next-blanks))))
          [sections remaining blanks-before])))))
 
-(defn- replace-entities-in-node
-  "Walk the AST and replace Org entities in prose text fields.
-   Skips literal content: src blocks, generic blocks, fixed-width, and latex lines."
-  [node]
-  (case (:type node)
-    :document   (-> node
-                    (update :title #(when % (replace-entities %)))
-                    (update :children #(mapv replace-entities-in-node %)))
-    :section    (-> node
-                    (update :title #(when % (replace-entities %)))
-                    (update :children #(mapv replace-entities-in-node %)))
-    :paragraph  (update node :content #(when % (replace-entities %)))
-    :list       (update node :items #(mapv replace-entities-in-node %))
-    :list-item  (-> node
-                    (update :content #(when % (replace-entities %)))
-                    (update :term #(when % (replace-entities %)))
-                    (update :definition #(when % (replace-entities %)))
-                    (update :children #(mapv replace-entities-in-node %)))
-    :table      (update node :rows
-                        (fn [rows] (mapv (fn [row] (mapv replace-entities row)) rows)))
-    :quote-block   (update node :content #(when % (replace-entities %)))
-    :comment       (update node :content #(when % (replace-entities %)))
-    :footnote-def  (update node :content #(when % (replace-entities %)))
-    ;; Literal content — no entity replacement:
-    ;; :src-block, :block, :fixed-width, :html-line, :latex-line
-    node))
-
 (defn parse-org
   ([org-content] (parse-org org-content {}))
   ([org-content {:keys [unwrap?] :or {unwrap? true}}]
    (binding [*parse-errors* (volatile! [])]
-     (let [;; Use unwrap-text-indexed to preserve original line numbers
-           indexed-lines (if unwrap?
+     (let [indexed-lines (if unwrap?
                            (unwrap-text-indexed org-content)
                            (index-lines (str/split-lines org-content)))
            [meta rest-after-meta] (parse-metadata indexed-lines)
-           title (get meta :title "Untitled Document")
+           title-raw (get meta :title "Untitled Document")
            [top-level-content rest-after-content content-trailing-blanks] (parse-content rest-after-meta)
            [sections _ _] (parse-sections rest-after-content [] nil content-trailing-blanks)
            errors @*parse-errors*
-           doc (-> (make-node :document
-                              :title title
-                              :meta meta
-                              :children (vec (concat top-level-content sections)))
-                   replace-entities-in-node)]
+           doc (make-node :document
+                          :title (parse-inline title-raw)
+                          :meta meta
+                          :children (vec (concat top-level-content sections)))]
        (if (seq errors)
          (assoc doc :parse-errors errors)
          doc)))))
@@ -1072,7 +1224,7 @@
 (defn- section-matches? [section {:keys [level-limit title-pattern id-pattern]}]
   (let [level (:level section)]
     (and (or (nil? level-limit) (<= level level-limit))
-         (or (nil? title-pattern) (when-let [title (:title section)] (re-find title-pattern title)))
+         (or (nil? title-pattern) (when-let [title (inline-text (:title section))] (re-find title-pattern title)))
          (or (nil? id-pattern)
              (when-let [id (get-in section [:properties :id])] (re-find id-pattern id))
              (when-let [custom-id (get-in section [:properties :custom_id])] (re-find id-pattern custom-id))))))
@@ -1083,17 +1235,20 @@
    (case (:type node)
      :document (assoc node :children (vec (keep #(filter-ast-node % opts ancestors) (:children node))))
      :section
-     (let [{:keys [title-pattern id-pattern]} opts
+     (let [{:keys [level-limit title-pattern id-pattern]} opts
            direct-match (section-matches? node opts)
+           level-ok (or (nil? level-limit) (<= (:level node) level-limit))
            ancestor-title-ok
            (or (nil? title-pattern)
-               (some #(when-let [t (:title %)] (re-find title-pattern t)) ancestors))
+               (some #(when-let [t (inline-text (:title %))] (re-find title-pattern t)) ancestors))
            ancestor-id-ok
            (or (nil? id-pattern)
                (some #(or (when-let [id (get-in % [:properties :id])] (re-find id-pattern id))
                           (when-let [cid (get-in % [:properties :custom_id])] (re-find id-pattern cid)))
                      ancestors))
-           passes-filters (and direct-match ancestor-title-ok ancestor-id-ok)
+           ;; A section passes if it directly matches, OR if its ancestors
+           ;; match title/id (keeping descendants) while respecting level-limit
+           passes-filters (or direct-match (and level-ok ancestor-title-ok ancestor-id-ok))
            filtered-children (keep #(filter-ast-node % opts (conj ancestors node)) (:children node))]
        (cond
          passes-filters (assoc node :children (vec filtered-children))
@@ -1122,12 +1277,13 @@
    Otherwise return the node unchanged (wrapped in a vector)."
   [node level-limit-inclusive]
   (if (and (= (:type node) :section) (> (:level node) level-limit-inclusive))
-    (let [title (:title node)
-          todo-prefix (when (:todo node) (str (name (:todo node)) " "))
-          priority-prefix (when (:priority node) (str "[#" (:priority node) "] "))
-          tags-suffix (when (seq (:tags node)) (str " :" (str/join ":" (:tags node)) ":"))
-          bold-title (str todo-prefix priority-prefix "*" title "*" tags-suffix)
-          title-para (make-node :paragraph :content bold-title
+    (let [title-nodes (or (:title node) [])
+          todo-node (when (:todo node) {:type :text :value (str (name (:todo node)) " ")})
+          priority-node (when (:priority node) {:type :text :value (str "[#" (:priority node) "] ")})
+          tags-node (when (seq (:tags node)) {:type :text :value (str " :" (str/join ":" (:tags node)) ":")})
+          bold-node {:type :bold :children title-nodes}
+          content (filterv some? [todo-node priority-node bold-node tags-node])
+          title-para (make-node :paragraph :content content
                                 :blank-lines-before (:blank-lines-before node))
           children (mapcat #(flatten-deep-sections-expand % level-limit-inclusive) (:children node))]
       (into [title-para] children))
@@ -1148,7 +1304,9 @@
 
 (defn- content-blank? [node]
   (case (:type node)
-    (:paragraph :comment :fixed-width :quote-block :src-block :block :footnote-def :html-line :latex-line :drawer) (str/blank? (:content node))
+    (:paragraph :footnote-def) (not (seq (:content node)))
+    (:comment :fixed-width :src-block :block :html-line :latex-line :drawer) (str/blank? (:content node))
+    :quote-block (not (seq (:children node)))
     :list (empty? (:items node))
     :table (empty? (:rows node))
     false))
@@ -1161,18 +1319,16 @@
 (defn clean-node [node]
   (let [cleaned
         (case (:type node)
-          :document (-> node (update :title #(when % (str/trim %))) (update :children #(clean-children % true)))
-          :section (-> node (update :title #(when % (str/trim %))) (update :properties clean-properties) (update :children #(clean-children % true)))
-          :list-item (let [node (update node :children #(clean-children % false))]
-                       (if (:term node)
-                         (cond-> node
-                           (:term node)       (update :term str/trim)
-                           (:definition node) (update :definition str/trim))
-                         (update node :content #(when % (str/trim %)))))
+          :document (update node :children #(clean-children % true))
+          :section (-> node (update :properties clean-properties) (update :children #(clean-children % true)))
+          :list-item (update node :children #(clean-children % false))
           :list (update node :items #(mapv clean-node %))
-          :table (update node :rows #(mapv (fn [row] (mapv str/trim row)) %))
+          :table node
           :property-drawer (update node :properties clean-properties)
-          (:paragraph :quote-block :comment :footnote-def :block :html-line :latex-line :drawer) (update node :content #(when % (str/trim %)))
+          :quote-block (update node :children #(clean-children % true))
+          (:comment :fixed-width :block :html-line :latex-line :drawer) (update node :content #(when % (str/trim %)))
+          ;; :paragraph, :footnote-def — :content is inline nodes, no trimming needed
+          ;; :src-block — literal content, no trimming
           node)]
     (remove-empty-vals (dissoc cleaned :line))))
 

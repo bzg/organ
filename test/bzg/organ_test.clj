@@ -11,11 +11,12 @@
         :fail)))
 
 (defn- find-section
-  "Find a top-level or nested section by title in the AST."
+  "Find a top-level or nested section by title text in the AST."
   [ast title]
   (letfn [(walk [node]
             (when (map? node)
-              (if (and (= (:type node) :section) (= (:title node) title))
+              (if (and (= (:type node) :section)
+                       (= (organ/inline-text (:title node)) title))
                 node
                 (some walk (:children node)))))]
     (walk ast)))
@@ -48,7 +49,7 @@
 
          (assert= "parse title"
                   "Hello"
-                  (:title (organ/parse-org "#+TITLE: Hello\n")))
+                  (organ/inline-text (:title (organ/parse-org "#+TITLE: Hello\n"))))
 
          (assert= "section level"
                   1
@@ -58,12 +59,19 @@
          (assert= "section title"
                   "Heading"
                   (-> (organ/parse-org "* Heading\nBody text")
-                      :children first :title))
+                      :children first :title organ/inline-text))
 
-         (assert= "paragraph content preserves org markup"
-                  "This is *bold* text"
+         ;; --- Inline parsing of paragraph content ---
+         (assert= "paragraph content has inline nodes"
+                  :bold
                   (-> (organ/parse-org "* Heading\nThis is *bold* text")
-                      :children first :children first :content))
+                      :children first :children first :content
+                      second :type))
+
+         (assert= "paragraph inline text"
+                  "This is bold text"
+                  (-> (organ/parse-org "* Heading\nThis is *bold* text")
+                      :children first :children first :content organ/inline-text))
 
          (assert= "nested sections"
                   2
@@ -106,11 +114,30 @@
                       (organ/filter-ast {:level-limit 1})
                       :children first :children count))
 
-         (assert= "clean-node trims content"
+         ;; --- filter-ast title-pattern ---
+         (assert= "filter-ast title-pattern keeps match"
+                  "Alpha"
+                  (-> (organ/parse-org "* Alpha\nBody\n* Beta\nBody")
+                      (organ/filter-ast {:title-pattern #"Alpha"})
+                      :children first :title organ/inline-text))
+
+         (assert= "filter-ast title-pattern removes non-match"
+                  1
+                  (-> (organ/parse-org "* Alpha\nBody\n* Beta\nBody")
+                      (organ/filter-ast {:title-pattern #"Alpha"})
+                      :children count))
+
+         (assert= "filter-ast title-pattern keeps descendants"
+                  1
+                  (-> (organ/parse-org "* Alpha\n** Child\n* Beta")
+                      (organ/filter-ast {:title-pattern #"Alpha"})
+                      :children first :children count))
+
+         (assert= "clean-node paragraph content"
                   "Hello"
                   (-> (organ/parse-org "* Heading\n  Hello  ")
                       organ/clean-node
-                      :children first :children first :content))
+                      :children first :children first :content organ/inline-text))
 
          (assert= "format-ast-as-edn returns string"
                   true
@@ -183,6 +210,11 @@
                   (-> (organ/parse-org "#+BEGIN_QUOTE\nHello\n#+END_QUOTE")
                       :children first :type))
 
+         (assert= "quote block has paragraph children"
+                  :paragraph
+                  (-> (organ/parse-org "#+BEGIN_QUOTE\nHello\n#+END_QUOTE")
+                      :children first :children first :type))
+
          ;; --- Generic block (CENTER) ---
          (let [ast (organ/parse-org "#+BEGIN_CENTER\nCentered\n#+END_CENTER")]
            (assert= "generic block type"
@@ -239,23 +271,23 @@
                   (-> (organ/parse-org "[fn:1] My footnote.")
                       :children first :label))
 
-         ;; --- Inline footnote in paragraph text ---
+         ;; --- Inline footnote in paragraph ---
          (assert= "inline footnote in paragraph"
-                  true
-                  (let [content (-> (organ/parse-org "Text with[fn:x:inline def].")
-                                    :children first :content)]
-                    (boolean (re-find organ/footnote-inline-pattern content))))
+                  :footnote-inline
+                  (-> (organ/parse-org "Text with[fn:x:inline def].")
+                      :children first :content
+                      second :type))
 
          ;; --- Description list ---
          (let [ast (organ/parse-org "- Term :: Definition")]
            (assert= "description list item term"
                     "Term"
-                    (-> ast :children first :items first :term)))
+                    (organ/inline-text (-> ast :children first :items first :term))))
 
          (let [ast (organ/parse-org "- Term :: Definition")]
            (assert= "description list item definition"
                     "Definition"
-                    (-> ast :children first :items first :definition)))
+                    (organ/inline-text (-> ast :children first :items first :definition))))
 
          ;; --- Ordered list detection ---
          (let [ast (organ/parse-org "1. First\n2. Second")]
@@ -281,6 +313,12 @@
                     false
                     (-> ast :children first :has-header)))
 
+         ;; --- Table cells are inline nodes ---
+         (let [ast (organ/parse-org "| *bold* | b |\n| 1 | 2 |")]
+           (assert= "table cell inline nodes"
+                    :bold
+                    (-> ast :children first :rows first first first :type)))
+
          ;; --- Affiliated keywords: caption ---
          (let [ast (organ/parse-org "* S\n#+CAPTION: My caption\n| a |\n| 1 |")]
            (assert= "affiliated caption"
@@ -302,11 +340,15 @@
          ;; --- Org entities ---
          (assert= "org entity alpha"
                   true
-                  (str/includes? (-> (organ/parse-org "\\alpha here") :children first :content) "α"))
+                  (str/includes?
+                   (organ/inline-text (-> (organ/parse-org "\\alpha here") :children first :content))
+                   "α"))
 
          (assert= "org entity arrow"
                   true
-                  (str/includes? (-> (organ/parse-org "\\rarr here") :children first :content) "→"))
+                  (str/includes?
+                   (organ/inline-text (-> (organ/parse-org "\\rarr here") :children first :content))
+                   "→"))
 
          ;; --- Comma escaping in blocks ---
          (let [ast (organ/parse-org "#+BEGIN_SRC org\n,* Escaped headline\n,#+TITLE: Escaped\n#+END_SRC")]
@@ -359,7 +401,7 @@
          (let [ast (organ/parse-org "* S\n:LOGBOOK:\nEntry\n:END:\nBody")]
            (assert= "body after drawer"
                     "Body"
-                    (-> ast :children first :children second :content)))
+                    (organ/inline-text (-> ast :children first :children second :content))))
 
          ;; --- Unterminated drawer ---
          (let [ast (organ/parse-org "* S\n:LOGBOOK:\nEntry")]
@@ -396,8 +438,8 @@
          ;; --- Entity not matched as word prefix ---
          (assert= "entity not partial-matched"
                   "The \\integers are nice"
-                  (-> (organ/parse-org "The \\integers are nice")
-                      :children first :content))
+                  (organ/inline-text (-> (organ/parse-org "The \\integers are nice")
+                                         :children first :content)))
 
          ;; --- Inactive timestamp time range ---
          (let [ast (organ/parse-org "* DONE Task\nCLOSED: [2025-02-20 Thu 09:00-12:00]")]
@@ -408,8 +450,224 @@
          ;; --- Table with leading separator ---
          (let [ast (organ/parse-org "|---+---|\n| a | b |")]
            (assert= "table with leading separator"
-                    [["a" "b"]]
-                    (-> ast :children first :rows)))
+                    "a"
+                    (organ/inline-text (-> ast :children first :rows first first))))
+
+         ;; ============================
+         ;; Inline parsing: parse-inline
+         ;; ============================
+
+         ;; --- Nil and blank input ---
+         (assert= "parse-inline nil"
+                  []
+                  (organ/parse-inline nil))
+
+         (assert= "parse-inline blank"
+                  []
+                  (organ/parse-inline "   "))
+
+         ;; --- Plain text ---
+         (assert= "parse-inline plain text"
+                  [{:type :text :value "hello world"}]
+                  (organ/parse-inline "hello world"))
+
+         ;; --- Bold ---
+         (assert= "inline bold"
+                  {:type :bold :children [{:type :text :value "bold"}]}
+                  (second (organ/parse-inline "text *bold* more")))
+
+         ;; --- Italic ---
+         (assert= "inline italic"
+                  {:type :italic :children [{:type :text :value "italic"}]}
+                  (second (organ/parse-inline "text /italic/ more")))
+
+         ;; --- Underline ---
+         (assert= "inline underline"
+                  {:type :underline :children [{:type :text :value "underline"}]}
+                  (second (organ/parse-inline "text _underline_ more")))
+
+         ;; --- Strikethrough ---
+         (assert= "inline strikethrough"
+                  {:type :strike :children [{:type :text :value "strike"}]}
+                  (second (organ/parse-inline "text +strike+ more")))
+
+         ;; --- Code ---
+         (assert= "inline code"
+                  {:type :code :value "code"}
+                  (second (organ/parse-inline "text ~code~ more")))
+
+         ;; --- Verbatim ---
+         (assert= "inline verbatim"
+                  {:type :verbatim :value "verbatim"}
+                  (second (organ/parse-inline "text =verbatim= more")))
+
+         ;; --- Code/verbatim preserve content literally ---
+         (assert= "code preserves entities"
+                  "\\alpha"
+                  (:value (first (organ/parse-inline "~\\alpha~"))))
+
+         (assert= "verbatim preserves entities"
+                  "\\beta"
+                  (:value (first (organ/parse-inline "=\\beta="))))
+
+         ;; --- Emphasis boundary: not in middle of words ---
+         (assert= "star in middle of word is not bold"
+                  [{:type :text :value "a*b*c"}]
+                  (organ/parse-inline "a*b*c"))
+
+         (assert= "slash path is not italic"
+                  [{:type :text :value "/path/to/file"}]
+                  (organ/parse-inline "/path/to/file"))
+
+         ;; --- Emphasis boundary: requires non-whitespace inside ---
+         (assert= "star with space inside is not bold"
+                  [{:type :text :value "* not bold *"}]
+                  (organ/parse-inline "* not bold *"))
+
+         ;; --- Emphasis with punctuation boundaries ---
+         (assert= "bold after paren"
+                  :bold
+                  (-> (organ/parse-inline "(*bold*)") second :type))
+
+         ;; --- Nested emphasis: bold containing italic ---
+         (let [nodes (organ/parse-inline "*bold /italic/ text*")]
+           (assert= "nested bold>italic"
+                    :italic
+                    (-> nodes first :children second :type)))
+
+         (let [nodes (organ/parse-inline "*bold /italic/ text*")]
+           (assert= "nested bold>italic text extraction"
+                    "bold italic text"
+                    (organ/inline-text nodes)))
+
+         ;; --- Link with description ---
+         (let [link (second (organ/parse-inline "See [[https://example.com][Example]]"))]
+           (assert= "link with desc type" :link (:type link))
+           (assert= "link with desc url" "https://example.com" (:url link))
+           (assert= "link with desc link-type" :https (:link-type link))
+           (assert= "link with desc children"
+                    "Example"
+                    (organ/inline-text (:children link))))
+
+         ;; --- Link without description ---
+         (let [link (first (organ/parse-inline "[[https://example.com]]"))]
+           (assert= "link without desc type" :link (:type link))
+           (assert= "link without desc url" "https://example.com" (:url link))
+           (assert= "link without desc no children"
+                    nil
+                    (seq (:children link))))
+
+         ;; --- Link type classification ---
+         (assert= "link type file"
+                  :file
+                  (:link-type (first (organ/parse-inline "[[file:notes.org]]"))))
+
+         (assert= "link type id"
+                  :id
+                  (:link-type (first (organ/parse-inline "[[id:abc-123]]"))))
+
+         (assert= "link target for id"
+                  "abc-123"
+                  (:target (first (organ/parse-inline "[[id:abc-123]]"))))
+
+         (assert= "link type custom-id"
+                  :custom-id
+                  (:link-type (first (organ/parse-inline "[[#my-section]]"))))
+
+         (assert= "link type heading"
+                  :heading
+                  (:link-type (first (organ/parse-inline "[[*Some Heading]]"))))
+
+         (assert= "link target for heading"
+                  "Some Heading"
+                  (:target (first (organ/parse-inline "[[*Some Heading]]"))))
+
+         ;; --- Link description with emphasis ---
+         (let [link (first (organ/parse-inline "[[https://x.com][*bold* desc]]"))]
+           (assert= "link desc with bold"
+                    :bold
+                    (-> link :children first :type)))
+
+         ;; --- Footnote reference ---
+         (assert= "inline footnote ref"
+                  {:type :footnote-ref :label "1"}
+                  (second (organ/parse-inline "text[fn:1] more")))
+
+         ;; --- Footnote inline ---
+         (let [fn-node (second (organ/parse-inline "text[fn:x:inline def] more"))]
+           (assert= "inline footnote type" :footnote-inline (:type fn-node))
+           (assert= "inline footnote label" "x" (:label fn-node))
+           (assert= "inline footnote content"
+                    "inline def"
+                    (organ/inline-text (:children fn-node))))
+
+         ;; --- Active timestamp ---
+         (let [ts (second (organ/parse-inline "Due <2025-03-27 Thu>."))]
+           (assert= "active timestamp type" :timestamp (:type ts))
+           (assert= "active timestamp active" true (:active ts))
+           (assert= "active timestamp value" "2025-03-27" (:value ts)))
+
+         ;; --- Active timestamp with time ---
+         (let [ts (first (organ/parse-inline "<2025-03-27 Thu 10:30>"))]
+           (assert= "timestamp with time"
+                    "2025-03-27T10:30"
+                    (:value ts)))
+
+         ;; --- Active timestamp with repeater ---
+         (let [ts (first (organ/parse-inline "<2025-03-27 Thu +1w>"))]
+           (assert= "timestamp with repeater"
+                    "+1w"
+                    (:repeater ts)))
+
+         ;; --- Inactive timestamp ---
+         (let [ts (first (organ/parse-inline "[2025-03-27 Thu]"))]
+           (assert= "inactive timestamp type" :timestamp (:type ts))
+           (assert= "inactive timestamp active" false (:active ts))
+           (assert= "inactive timestamp value" "2025-03-27" (:value ts)))
+
+         ;; --- Entity replacement in text nodes ---
+         (assert= "entity in text node"
+                  [{:type :text :value "α here"}]
+                  (organ/parse-inline "\\alpha here"))
+
+         ;; --- Entity NOT replaced in verbatim ---
+         (assert= "entity in verbatim preserved"
+                  [{:type :verbatim :value "\\alpha"}]
+                  (organ/parse-inline "=\\alpha="))
+
+         ;; --- Multiple inline elements in sequence ---
+         (let [nodes (organ/parse-inline "*bold* and ~code~ and [[https://x.com][link]]")]
+           (assert= "multi-element count"
+                    5
+                    (count nodes))
+           (assert= "multi-element types"
+                    [:bold :text :code :text :link]
+                    (mapv :type nodes)))
+
+         ;; --- inline-text extraction ---
+         (assert= "inline-text from emphasis"
+                  "bold text"
+                  (organ/inline-text (organ/parse-inline "*bold* text")))
+
+         (assert= "inline-text from code"
+                  "use func() here"
+                  (organ/inline-text (organ/parse-inline "use ~func()~ here")))
+
+         (assert= "inline-text from link with desc"
+                  "See Example"
+                  (organ/inline-text (organ/parse-inline "See [[https://x.com][Example]]")))
+
+         (assert= "inline-text from link without desc"
+                  "https://x.com"
+                  (organ/inline-text (organ/parse-inline "[[https://x.com]]")))
+
+         (assert= "inline-text nil input"
+                  nil
+                  (organ/inline-text nil))
+
+         (assert= "inline-text empty"
+                  nil
+                  (organ/inline-text []))
 
          ;; --- Test from test.org file if available ---
          (let [test-file "test/bzg/test.org"]
