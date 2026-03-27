@@ -389,7 +389,10 @@
     (str/starts-with? url "*")  {:link-type :heading :target (subs url 1)}
     (str/starts-with? url "#")  {:link-type :custom-id :target (subs url 1)}
     :else (if-let [[_ t target] (re-matches link-type-pattern url)]
-            {:link-type (keyword t) :target target}
+            {:link-type (keyword t)
+             :target (if (and (= t "file") (str/starts-with? target "//"))
+                       (subs target 2)
+                       target)}
             {:link-type nil :target url})))
 
 (declare ^:private do-parse-inline)
