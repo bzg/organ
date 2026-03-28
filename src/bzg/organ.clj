@@ -57,8 +57,8 @@
 (def ^:private footnote-ref-pattern #"\[fn:([^\]:]+)\]")
 (def ^:private footnote-inline-pattern #"\[fn:([^\]:]*):([^\]]+)\]")
 (def ^:private footnote-def-pattern #"^\[fn:([^\]]+)\]\s*(.*)$")
-(def ^:private link-with-desc-pattern #"\[\[([^\]]+)\]\[([^\]]+)\]\]")
-(def ^:private link-without-desc-pattern #"\[\[([^\]]+)\]\]")
+(def ^:private link-with-desc-pattern #"\[\[([^\]]+)\]\[((?:[^\]]|\](?!\]))+)\]\]")
+(def ^:private link-without-desc-pattern #"\[\[((?:[^\]]|\](?!\]))+)\]\]")
 (def ^:private link-type-pattern #"^(file|id|mailto|http|https|ftp|news|shell|elisp|doi):(.*)$")
 (def ^:private affiliated-keyword-pattern #"(?i)^\s*#\+(attr_\w+|caption|name|header|results):\s*(.*)$")
 (def ^:private list-item-simple-pattern #"^\s*(?:[-+*]|\d+[.)])\s+.*$")
@@ -399,13 +399,13 @@
 
 (defn- try-parse-link [text i]
   (let [s (subs text i)]
-    (or (when-let [[full url desc] (re-find #"^\[\[([^\]]*)\]\[([^\]]*)\]\]" s)]
+    (or (when-let [[full url desc] (re-find #"^\[\[([^\]]*)\]\[((?:[^\]]|\](?!\]))*)\]\]" s)]
           (let [{:keys [link-type target]} (classify-link-url url)]
             [(cond-> {:type :link :url url :children (do-parse-inline desc)}
                link-type (assoc :link-type link-type)
                target    (assoc :target target))
              (+ i (count full))]))
-        (when-let [[full url] (re-find #"^\[\[([^\]]*)\]\]" s)]
+        (when-let [[full url] (re-find #"^\[\[((?:[^\]]|\](?!\]))*)\]\]" s)]
           (let [{:keys [link-type target]} (classify-link-url url)]
             [(cond-> {:type :link :url url}
                link-type (assoc :link-type link-type)
