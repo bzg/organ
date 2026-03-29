@@ -163,7 +163,8 @@
       (re-matches property-pattern line)))
 (defn- drawer-start? [line]
   (and (re-matches drawer-start-pattern line)
-       (not (re-matches property-drawer-start-pattern line))))
+       (not (re-matches property-drawer-start-pattern line))
+       (not (re-matches drawer-end-pattern line))))
 (defn- list-item? [line] (re-matches list-item-simple-pattern line))
 (defn- affiliated-keyword? [line] (re-matches affiliated-keyword-pattern line))
 (defn- index-lines [lines] (map-indexed (fn [i line] {:line line :num (inc i)}) lines))
@@ -1052,7 +1053,8 @@
                 (html-line? line)
                 (latex-line? line)
                 (affiliated-keyword? line)
-                (planning-line? line))
+                (planning-line? line)
+                (metadata-line? line))
           (when (seq content)
             [(make-node :paragraph :content (parse-inline (str/join "\n" content))
                         :line start-line-num) remaining])
@@ -1209,7 +1211,9 @@
 (defn parse-org
   ([org-content] (parse-org org-content {}))
   ([org-content {:keys [unwrap?] :or {unwrap? true}}]
-   (binding [*parse-errors* (volatile! [])]
+   (if (nil? org-content)
+     (parse-org "" {})
+     (binding [*parse-errors* (volatile! [])]
      (let [indexed-lines (if unwrap?
                            (unwrap-text-indexed org-content)
                            (index-lines (str/split-lines org-content)))
@@ -1224,7 +1228,7 @@
                           :children (vec (concat top-level-content sections)))]
        (if (seq errors)
          (assoc doc :parse-errors errors)
-         doc)))))
+         doc))))))
 
 ;; AST Filtering
 (defn- section? [node] (= (:type node) :section))

@@ -669,6 +669,28 @@
                   nil
                   (organ/inline-text []))
 
+         ;; --- Orphan :END: is not a drawer start ---
+         (let [ast (organ/parse-org "* S\n:END:\nBody text")]
+           (assert= "orphan :END: does not start drawer"
+                    :paragraph
+                    (-> ast :children first :children first :type)))
+
+         (let [ast (organ/parse-org "* S\n:END:\nBody text")]
+           (assert= "orphan :END: body not swallowed"
+                    false
+                    (boolean (seq (:parse-errors ast)))))
+
+         ;; --- #+KEYWORD: lines don't leak into paragraphs ---
+         (let [ast (organ/parse-org "* S\nSome text\n#+PROPERTY: foo bar\nMore text")]
+           (assert= "metadata line not in paragraph"
+                    "Some text"
+                    (organ/inline-text (-> ast :children first :children first :content))))
+
+         ;; --- parse-org nil input ---
+         (assert= "parse-org nil"
+                  :document
+                  (:type (organ/parse-org nil)))
+
          ;; --- Test from test.org file if available ---
          (let [test-file "test/bzg/test.org"]
            (if (.exists (java.io.File. test-file))
