@@ -65,12 +65,14 @@ To just build the jar without deploying:
 
 The version is set in =build.clj=.
 
-* Contributing
+* Contribute
 
 - Send a [[mailto:~bzg/orgology@lists.sr.ht?subject=\[BUG\] organ: <SHORT EXPLICIT BUG DESCRIPTION>][bug report]]
 - Send a [[mailto:~bzg/orgology@lists.sr.ht?subject=\[PATCH\] organ: <COMMIT SUMMARY>][patch]] (please use =git format-patch=)
 - Send a [[mailto:~bzg/orgology@lists.sr.ht?subject=\[FR\] organ: <FEATURE REQUEST>][feature request]]
 - Share any [[mailto:~bzg/orgology@lists.sr.ht?subject=organ: <ANYTHING>][other question or idea]]
+
+You can also [[mailto:bzg@bzg.fr][send me an email]] and support my work on [[https://liberapay.com/bzg/][liberapay]].
 
 * Support the Clojure(script) ecosystem
 
