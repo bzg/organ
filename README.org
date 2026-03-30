@@ -67,10 +67,10 @@ The version is set in =build.clj=.
 
 * Contribute
 
-- Send a [[mailto:~bzg/orgology@lists.sr.ht?subject=\[BUG\] organ: <SHORT EXPLICIT BUG DESCRIPTION>][bug report]]
-- Send a [[mailto:~bzg/orgology@lists.sr.ht?subject=\[PATCH\] organ: <COMMIT SUMMARY>][patch]] (please use =git format-patch=)
-- Send a [[mailto:~bzg/orgology@lists.sr.ht?subject=\[FR\] organ: <FEATURE REQUEST>][feature request]]
-- Share any [[mailto:~bzg/orgology@lists.sr.ht?subject=organ: <ANYTHING>][other question or idea]]
+- Send a [[mailto:~bzg/orgology@lists.sr.ht][bug report]] with =[BUG] organ: <SHORT EXPLICIT BUG DESCRIPTION>=
+- Send a [[mailto:~bzg/orgology@lists.sr.ht][patch]] with =[PATCH] organ: <COMMIT SUMMARY>=
+- Send a [[mailto:~bzg/orgology@lists.sr.ht][feature request]] with =[FR] organ: <FEATURE REQUEST>=
+- Share any [[mailto:~bzg/orgology@lists.sr.ht][other question or idea]]
 
 You can also [[mailto:bzg@bzg.fr][send me an email]] and support my work on [[https://liberapay.com/bzg/][liberapay]].
 
