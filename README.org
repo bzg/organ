@@ -65,9 +65,12 @@ To just build the jar without deploying:
 
 The version is set in =build.clj=.
 
-* Feedback
+* Contributing
 
-Send an email to *bzg@bzg.fr*.
+- Send a [[mailto:~bzg/orgology@lists.sr.ht?subject=\[BUG\] organ: <SHORT EXPLICIT BUG DESCRIPTION>][bug report]]
+- Send a [[mailto:~bzg/orgology@lists.sr.ht?subject=\[PATCH\] organ: <COMMIT SUMMARY>][patch]] (please use =git format-patch=)
+- Send a [[mailto:~bzg/orgology@lists.sr.ht?subject=\[FR\] organ: <FEATURE REQUEST>][feature request]]
+- Share any [[mailto:~bzg/orgology@lists.sr.ht?subject=organ: <ANYTHING>][other question or idea]]
 
 * Support the Clojure(script) ecosystem
 
