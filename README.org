@@ -1,5 +1,7 @@
 #+title: organ
 
+[[https://img.shields.io/badge/versioning-intver.org-blue.svg?style=for-the-badge]]
+
 A Clojure library to parse [[https://orgmode.org][Org mode]] text into an AST (EDN data).
 
 * Usage
@@ -73,6 +75,14 @@ The version is set in =build.clj=.
 - Share any [[mailto:~bzg/orgology@lists.sr.ht][other question or idea]]
 
 You can also [[mailto:bzg@bzg.fr][send me an email]] and support my work on [[https://liberapay.com/bzg/][liberapay]].
+
+* Intentional Versioning
+
+This project uses [[https://intver.org][Intentional Versioning]], here are the three audiences:
+
+- =x= : N/A
+- =y= : software that integrate organ as a dependency
+- =z= : contributors to the codebase
 
 * Support the Clojure(script) ecosystem
 
