@@ -1,6 +1,6 @@
 #+title: organ
 
-[[https://img.shields.io/badge/versioning-intver.org-blue.svg?style=for-the-badge]]
+[[https://intver.org/][https://img.shields.io/badge/versioning-intver.org-blue.svg?style=for-the-badge]]
 
 A Clojure library to parse [[https://orgmode.org][Org mode]] text into an AST (EDN data).
 
