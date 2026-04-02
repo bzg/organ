@@ -80,9 +80,9 @@ You can also [[mailto:bzg@bzg.fr][send me an email]] and support my work on [[ht
 
 This project uses [[https://intver.org][Intentional Versioning]], here are the three audiences:
 
-- =x= : N/A
-- =y= : software that integrate organ as a dependency
-- =z= : contributors to the codebase
+- =Users= : Maintainers who rely on organ for their code
+- =Integrators= : N/A
+- =Maintainers= : maintainers of the codebase
 
 * Support the Clojure(script) ecosystem
 
