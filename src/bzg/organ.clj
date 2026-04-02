@@ -54,7 +54,7 @@
 (def ^:private latex-line-pattern #"(?i)^\s*#\+latex:\s*(.*)$")
 (def ^:private block-begin-pattern #"(?i)^\s*#\+BEGIN.*$")
 (def ^:private fixed-width-pattern #"^\s*: (.*)$")
-(def ^:private footnote-ref-pattern #"\[fn:([^\]:]+)\]")
+(def ^:private footnote-ref-pattern #"\[fn:([\w-]+)\]")
 (def ^:private footnote-inline-pattern #"\[fn:([^\]:]*):([^\]]+)\]")
 (def ^:private footnote-def-pattern #"^\[fn:([^\]]+)\]\s*(.*)$")
 (def ^:private link-with-desc-pattern #"\[\[([^\]]+)\]\[((?:[^\]]|\](?!\]))+)\]\]")
@@ -418,7 +418,7 @@
     (or (when-let [[full label content] (re-find #"^\[fn:([^\]:]*):([^\]]+)\]" s)]
           [{:type :footnote-inline :label label :children (do-parse-inline content)}
            (+ i (count full))])
-        (when-let [[full label] (re-find #"^\[fn:([^\]]+)\]" s)]
+        (when-let [[full label] (re-find #"^\[fn:([\w-]+)\]" s)]
           [{:type :footnote-ref :label label}
            (+ i (count full))]))))
 
@@ -1217,7 +1217,8 @@
      (let [indexed-lines (if unwrap?
                            (unwrap-text-indexed org-content)
                            (index-lines (str/split-lines org-content)))
-           [meta rest-after-meta] (parse-metadata indexed-lines)
+           [meta-raw rest-after-meta] (parse-metadata indexed-lines)
+           meta (dissoc meta-raw :_order :_raw)
            title-raw (get meta :title "Untitled Document")
            [top-level-content rest-after-content content-trailing-blanks] (parse-content rest-after-meta)
            [sections _ _] (parse-sections rest-after-content [] nil content-trailing-blanks)
