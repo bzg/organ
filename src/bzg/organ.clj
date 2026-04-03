@@ -353,18 +353,21 @@
 ;; Inline Parsing
 ;; Parses Org inline markup into a vector of typed nodes.
 
-(def ^:private emphasis-pre-set
-  #{\space \tab \- \( \{ \' \" \return \newline})
+(def ^:private emphasis-pre-punct #{\- \( \{ \' \"})
 
-(def ^:private emphasis-post-set
-  #{\space \tab \- \. \, \; \: \! \? \' \" \) \} \[ \return \newline})
+(def ^:private emphasis-post-punct #{\- \. \, \; \: \! \? \' \" \) \} \[})
 
 (defn- emphasis-pre? [text i]
-  (or (zero? i) (contains? emphasis-pre-set (.charAt text (dec i)))))
+  (or (zero? i)
+      (let [c (.charAt text (dec i))]
+        (or (Character/isSpaceChar c) (Character/isWhitespace c)
+            (contains? emphasis-pre-punct c)))))
 
 (defn- emphasis-post? [text i]
   (or (= i (dec (.length text)))
-      (contains? emphasis-post-set (.charAt text (inc i)))))
+      (let [c (.charAt text (inc i))]
+        (or (Character/isSpaceChar c) (Character/isWhitespace c)
+            (contains? emphasis-post-punct c)))))
 
 (defn- find-close-marker
   "Find matching close position for an emphasis or literal marker.
