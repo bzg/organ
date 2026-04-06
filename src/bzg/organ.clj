@@ -397,7 +397,12 @@
              :target (if (and (= t "file") (str/starts-with? target "//"))
                        (subs target 2)
                        target)}
-            {:link-type nil :target url})))
+            (if (or (str/starts-with? url "/")
+                    (str/starts-with? url "~")
+                    (str/starts-with? url "./")
+                    (str/starts-with? url "../"))
+              {:link-type :file :target url}
+              {:link-type nil :target url}))))
 
 (declare ^:private do-parse-inline)
 
