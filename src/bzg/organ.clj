@@ -75,6 +75,16 @@
 (def ^:private latex-dollar-pattern
   #"^\$([^ \t\r\n,;.$](?:[^$\r\n]*?(?:\n[^$\r\n]*?){0,2})?[^ \t\r\n,.$])\$(?=$|[- \t\r\n.,?;:'\")\\|^])")
 
+;; LaTeX environment (block-level): \begin{env} ... \end{env}
+(def ^:private latex-env-begin-pattern #"^\s*\\begin\{([^}]+)\}\s*$")
+(def ^:private latex-env-end-pattern-for
+  "Memoized constructor for \\end{name} patterns."
+  (memoize
+   (fn [env]
+     (re-pattern (str "^\\s*\\\\end\\{"
+                      (java.util.regex.Pattern/quote env)
+                      "\\}\\s*$")))))
+
 ;; Planning line (CLOSED, SCHEDULED, DEADLINE)
 (def ^:private org-timestamp-pattern #"<(\d{4})-(\d{2})-(\d{2})\s+\S+(?:\s+(\d{1,2}):(\d{2})(?:-(\d{1,2}):(\d{2}))?)?(?:\s+[.+]?[+]?\d+[hdwmy])*\s*>|\[(\d{4})-(\d{2})-(\d{2})\s+\S+(?:\s+(\d{1,2}):(\d{2})(?:-(\d{1,2}):(\d{2}))?)?(?:\s+[.+]?[+]?\d+[hdwmy])*\s*\]")
 (def ^:private org-repeater-pattern #"(?:^|[\s])([.+]?\+\d+[hdwmy])")
@@ -169,6 +179,7 @@
 (defn- planning-line? [line] (re-matches planning-line-pattern line))
 (defn- html-line? [line] (re-matches html-line-pattern line))
 (defn- latex-line? [line] (re-matches latex-line-pattern line))
+(defn- latex-env-begin? [line] (re-matches latex-env-begin-pattern line))
 (defn- property-line? [line]
   (or (re-matches property-drawer-start-pattern line)
       (re-matches property-drawer-end-pattern line)
@@ -227,6 +238,9 @@
         (or (= fc \-) (= fc \+) (Character/isDigit fc))
         (if (re-matches list-item-simple-pattern line) :list-item :text)
 
+        (= fc \\)
+        (if (re-matches latex-env-begin-pattern line) :latex-env-begin :text)
+
         (or (= fc \C) (= fc \S) (= fc \D))
         (if (re-matches planning-line-pattern line) :planning :text)
 
@@ -241,7 +255,7 @@
   "Set of line types that break paragraph accumulation."
   #{:blank :headline :list-item :table :block-begin :property-drawer-start
     :drawer-start :comment :fixed-width :footnote-def :html-line :latex-line
-    :affiliated :planning :metadata})
+    :latex-env-begin :affiliated :planning :metadata})
 
 (defn- unescape-comma
   "Remove leading comma escape from a line inside a block.
@@ -291,7 +305,8 @@
       (re-matches drawer-end-pattern current-line)
       (re-matches drawer-end-pattern next-line)
       (planning-line? current-line)
-      (planning-line? next-line)))
+      (planning-line? next-line)
+      (latex-env-begin? next-line)))
 
 ;; Org entities - maps \name to Unicode/ASCII equivalent
 (def ^:private org-entities
@@ -691,14 +706,17 @@
             (if-let [[_ btype] (re-matches generic-block-begin-pattern line)]
               (recur (conj result current) rest-lines true btype
                      (end-pattern-for btype))
-              (if (or (nil? next-line) (hard-break? line next-line false))
-                (recur (conj result current) rest-lines false nil nil)
-                (let [trimmed-next    (str/trim next-line)
-                      normalized-next (if (list-item? line)
-                                        (str/replace trimmed-next #"\s+" " ")
-                                        trimmed-next)
-                      new-current     {:line (str line " " normalized-next) :num num}]
-                  (recur result (cons new-current (rest rest-lines)) false nil nil))))))))))
+              (if-let [[_ env] (re-matches latex-env-begin-pattern line)]
+                (recur (conj result current) rest-lines true env
+                       (latex-env-end-pattern-for env))
+                (if (or (nil? next-line) (hard-break? line next-line false))
+                  (recur (conj result current) rest-lines false nil nil)
+                  (let [trimmed-next    (str/trim next-line)
+                        normalized-next (if (list-item? line)
+                                          (str/replace trimmed-next #"\s+" " ")
+                                          trimmed-next)
+                        new-current     {:line (str line " " normalized-next) :num num}]
+                    (recur result (cons new-current (rest rest-lines)) false nil nil)))))))))))
 
 
 ;; Parsing Helpers
@@ -1153,6 +1171,31 @@
    indexed-lines latex-line?
    #(second (re-matches latex-line-pattern %)) :latex-line))
 
+(defn- parse-latex-environment
+  "Collect lines between \\begin{env} and the matching \\end{env}.
+   Content is stored raw (including the \\begin and \\end lines)."
+  [indexed-lines]
+  (let [{:keys [line num]} (first indexed-lines)]
+    (when-let [[_ env] (re-matches latex-env-begin-pattern line)]
+      (let [end-pattern (latex-env-end-pattern-for env)]
+        (loop [[{l :line} & more :as remaining] (rest indexed-lines)
+               content [line]]
+          (cond
+            (empty? remaining)
+            (let [warning (str "Unterminated \\begin{" env "} environment")]
+              (add-parse-error! num warning)
+              [(make-node :latex-environment :name env
+                          :content (str/join "\n" content)
+                          :line num :warning warning :error-line num)
+               []])
+            (re-matches end-pattern l)
+            [(make-node :latex-environment :name env
+                        :content (str/join "\n" (conj content l))
+                        :line num)
+             more]
+            :else
+            (recur more (conj content l))))))))
+
 (defn- parse-footnote-definition [indexed-lines]
   (let [[{:keys [line num]} & more] indexed-lines]
     (when-let [{:keys [label content]} (parse-footnote-def line)]
@@ -1268,6 +1311,10 @@
 
         :block-begin
         (let [[rest-lines nodes'] (try-parse-maybe-affiliated parse-block remaining nodes pending-affiliated)]
+          (recur rest-lines nodes' nil 0))
+
+        :latex-env-begin
+        (let [[rest-lines nodes'] (try-parse-maybe-affiliated parse-latex-environment remaining nodes pending-affiliated)]
           (recur rest-lines nodes' nil 0))
 
         ;; :text, :planning, and any other type -> paragraph
@@ -1444,7 +1491,7 @@
 (defn- content-blank? [node]
   (case (:type node)
     (:paragraph :footnote-def) (not (seq (:content node)))
-    (:comment :fixed-width :src-block :block :html-line :latex-line :drawer) (str/blank? (:content node))
+    (:comment :fixed-width :src-block :block :html-line :latex-line :latex-environment :drawer) (str/blank? (:content node))
     :quote-block (not (seq (:children node)))
     :list (empty? (:items node))
     :table (empty? (:rows node))

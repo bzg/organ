@@ -260,6 +260,67 @@
                   (-> (organ/parse-org "* S\n#+latex: \\newpage")
                       :children first :children first :content))
 
+         ;; --- LaTeX environment (block) ---
+         (assert= "latex environment type"
+                  :latex-environment
+                  (-> (organ/parse-org "\\begin{equation}\nx = y + 1\n\\end{equation}")
+                      :children first :type))
+
+         (assert= "latex environment name"
+                  "equation"
+                  (-> (organ/parse-org "\\begin{equation}\nx = y + 1\n\\end{equation}")
+                      :children first :name))
+
+         (assert= "latex environment content preserved"
+                  "\\begin{equation}\nx = y + 1\n\\end{equation}"
+                  (-> (organ/parse-org "\\begin{equation}\nx = y + 1\n\\end{equation}")
+                      :children first :content))
+
+         (assert= "latex environment align with multiple lines"
+                  "\\begin{align}\na &= b \\\\\nc &= d\n\\end{align}"
+                  (-> (organ/parse-org "\\begin{align}\na &= b \\\\\nc &= d\n\\end{align}")
+                      :children first :content))
+
+         (assert= "latex environment starred (equation*)"
+                  "equation*"
+                  (-> (organ/parse-org "\\begin{equation*}\nx\n\\end{equation*}")
+                      :children first :name))
+
+         (assert= "mismatched end does not terminate"
+                  "\\begin{equation}\n\\end{align}\nstill inside\n\\end{equation}"
+                  (-> (organ/parse-org "\\begin{equation}\n\\end{align}\nstill inside\n\\end{equation}")
+                      :children first :content))
+
+         (assert= "unterminated latex environment is flagged"
+                  true
+                  (-> (organ/parse-org "\\begin{equation}\nx = y")
+                      :children first :warning some?))
+
+         (assert= "latex environment breaks paragraph"
+                  [:paragraph :latex-environment :paragraph]
+                  (->> (organ/parse-org "Before.\n\\begin{equation}\nx\n\\end{equation}\nAfter.")
+                       :children (map :type)))
+
+         (assert= "latex env lines not unwrapped into preceding paragraph"
+                  "Before."
+                  (-> (organ/parse-org "Before.\n\\begin{equation}\nx\n\\end{equation}")
+                      :children first :content organ/inline-text))
+
+         (assert= "latex environment with affiliated #+NAME"
+                  "eq1"
+                  (-> (organ/parse-org "* S\n#+NAME: eq1\n\\begin{equation}\nx\n\\end{equation}")
+                      :children first :children first :affiliated :name))
+
+         (assert= "latex environment preserves blank line inside"
+                  "\\begin{align}\na &= b\n\nc &= d\n\\end{align}"
+                  (-> (organ/parse-org "\\begin{align}\na &= b\n\nc &= d\n\\end{align}")
+                      :children first :content))
+
+         (assert= "latex environment before headline ends at section boundary"
+                  [:latex-environment :section]
+                  (->> (organ/parse-org "\\begin{equation}\nx\n\\end{equation}\n* Next")
+                       :children (map :type)))
+
          ;; --- Footnote definition ---
          (assert= "footnote definition"
                   :footnote-def
