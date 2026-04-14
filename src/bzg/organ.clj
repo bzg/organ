@@ -63,6 +63,18 @@
 (def ^:private affiliated-keyword-pattern #"(?i)^\s*#\+(attr_\w+|caption|name|header|results):\s*(.*)$")
 (def ^:private list-item-simple-pattern #"^\s*(?:[-+*]|\d+[.)])\s+.*$")
 
+;; LaTeX fragment patterns (inline math).
+(def ^:private latex-paren-pattern    #"^\\\(([\s\S]+?)\\\)")
+(def ^:private latex-bracket-pattern  #"^\\\[([\s\S]+?)\\\]")
+(def ^:private latex-dollars-pattern  #"^\$\$([\s\S]+?)\$\$")
+;; Org's single-$ rule: content starts and ends with a non-whitespace,
+;; non-punct char; no $ inside; up to 2 embedded newlines. The closing $
+;; must be followed by whitespace, punctuation, or end of string.
+(def ^:private latex-dollar1-pattern
+  #"^\$([^ \t\r\n,;.$])\$(?=$|[- \t\r\n.,?;:'\")\\|^])")
+(def ^:private latex-dollar-pattern
+  #"^\$([^ \t\r\n,;.$](?:[^$\r\n]*?(?:\n[^$\r\n]*?){0,2})?[^ \t\r\n,.$])\$(?=$|[- \t\r\n.,?;:'\")\\|^])")
+
 ;; Planning line (CLOSED, SCHEDULED, DEADLINE)
 (def ^:private org-timestamp-pattern #"<(\d{4})-(\d{2})-(\d{2})\s+\S+(?:\s+(\d{1,2}):(\d{2})(?:-(\d{1,2}):(\d{2}))?)?(?:\s+[.+]?[+]?\d+[hdwmy])*\s*>|\[(\d{4})-(\d{2})-(\d{2})\s+\S+(?:\s+(\d{1,2}):(\d{2})(?:-(\d{1,2}):(\d{2}))?)?(?:\s+[.+]?[+]?\d+[hdwmy])*\s*\]")
 (def ^:private org-repeater-pattern #"(?:^|[\s])([.+]?\+\d+[hdwmy])")
@@ -524,6 +536,28 @@
 (def ^:private emphasis-type {\* :bold \/ :italic \_ :underline \+ :strike})
 (def ^:private literal-type {\~ :code \= :verbatim})
 
+(defn- match-latex-fragment
+  "If `pattern` matches at position `i`, return a [node end] pair for a
+   LaTeX fragment of the given `kind`. Otherwise nil."
+  [text i pattern kind]
+  (when-let [[full content] (re-find-at pattern text i)]
+    [{:type :latex-fragment :kind kind :value content}
+     (+ i (count full))]))
+
+(defn- try-parse-latex-fragment
+  "Try to parse a LaTeX math fragment starting at position i.
+   Recognises \\(...\\), \\[...\\], $$...$$, and $...$ (Org's strict rule).
+   Returns [node end] or nil."
+  [text i]
+  (case (.charAt text i)
+    \\ (or (match-latex-fragment text i latex-paren-pattern   :paren)
+           (match-latex-fragment text i latex-bracket-pattern :bracket))
+    \$ (or (match-latex-fragment text i latex-dollars-pattern :dollars)
+           (when (or (zero? i) (not= (.charAt text (dec i)) \$))
+             (or (match-latex-fragment text i latex-dollar1-pattern :dollar)
+                 (match-latex-fragment text i latex-dollar-pattern  :dollar))))
+    nil))
+
 (defn- do-parse-inline [text]
   (let [len (.length text)
         buf (StringBuilder.)
@@ -585,6 +619,12 @@
                             :value (subs text (inc i) close)}))
               (do (skip! c) (recur (inc i) nodes)))
 
+            ;; LaTeX fragment: \( \[ $ $$
+            (or (= c \\) (= c \$))
+            (if-let [[node end] (try-parse-latex-fragment text i)]
+              (recur end (conj (flush-buf! nodes) node))
+              (do (skip! c) (recur (inc i) nodes)))
+
             ;; Plain character
             :else
             (do (skip! c) (recur (inc i) nodes))))))))
@@ -608,6 +648,12 @@
               :code (:value node)
               :verbatim (:value node)
               :timestamp (:raw node)
+              :latex-fragment (case (:kind node)
+                                :paren   (str "\\(" (:value node) "\\)")
+                                :bracket (str "\\[" (:value node) "\\]")
+                                :dollars (str "$$" (:value node) "$$")
+                                :dollar  (str "$" (:value node) "$")
+                                (:value node))
               :footnote-ref (str "[fn:" (:label node) "]")
               :footnote-inline ""
               :link (if (seq (:children node))

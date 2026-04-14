@@ -635,6 +635,32 @@
                   [{:type :verbatim :value "\\alpha"}]
                   (organ/parse-inline "=\\alpha="))
 
+         ;; --- LaTeX fragments ---
+         (assert= "latex fragment $...$"
+                  [{:type :latex-fragment :kind :dollar :value "x^2"}]
+                  (organ/parse-inline "$x^2$"))
+         (assert= "latex fragment $$...$$"
+                  [{:type :latex-fragment :kind :dollars :value "E=mc^2"}]
+                  (organ/parse-inline "$$E=mc^2$$"))
+         (assert= "latex fragment \\(...\\)"
+                  [{:type :latex-fragment :kind :paren :value "a+b"}]
+                  (organ/parse-inline "\\(a+b\\)"))
+         (assert= "latex fragment \\[...\\]"
+                  [{:type :latex-fragment :kind :bracket :value "\\sum_i x_i"}]
+                  (organ/parse-inline "\\[\\sum_i x_i\\]"))
+         (assert= "latex fragment entities preserved inside"
+                  [{:type :latex-fragment :kind :paren :value "\\alpha\\beta"}]
+                  (organ/parse-inline "\\(\\alpha\\beta\\)"))
+         (assert= "dollar currency not a fragment"
+                  [{:type :text :value "I have $5 and $10"}]
+                  (organ/parse-inline "I have $5 and $10"))
+         (assert= "latex fragment surrounded by text"
+                  [:text :latex-fragment :text]
+                  (mapv :type (organ/parse-inline "before $a+b$ after")))
+         (assert= "inline-text reconstructs fragment"
+                  "see $x^2$"
+                  (organ/inline-text (organ/parse-inline "see $x^2$")))
+
          ;; --- Multiple inline elements in sequence ---
          (let [nodes (organ/parse-inline "*bold* and ~code~ and [[https://x.com][link]]")]
            (assert= "multi-element count"
