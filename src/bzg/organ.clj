@@ -914,9 +914,17 @@
     :ordered
     marker))
 
+(defn- leading-indent
+  "Count leading whitespace characters on a line."
+  [^String line]
+  (count (re-find #"^\s*" line)))
+
 (defn- collect-list-item-body
   "Collect continuation lines for a list item until we hit another list item,
-   a headline, or a non-indented line (outside of blocks). Returns [indexed-lines remaining]."
+   a headline, or a non-indented line (outside of blocks). Returns [indexed-lines remaining].
+   Continuation lines must be indented strictly more than min-indent (the list item's
+   marker indent) — matching Org's rule that a line belongs to a list item only if it
+   is indented past the item's bullet."
   [indexed-lines min-indent]
   (loop [[{:keys [line]} & more :as remaining] indexed-lines
          collected []
@@ -960,23 +968,25 @@
                (<= (count indent) min-indent)))
         [collected remaining]
 
-        ;; Blank lines: only consume if a continuation follows (indented line or deeper list item).
-        ;; If what follows is a headline or non-indented content, stop and leave blanks unconsumed
-        ;; so parse-content can count them as trailing-blanks.
+        ;; Blank lines: only consume if a continuation follows (line indented past the
+        ;; item's marker, or a deeper list item). If what follows is a headline, a shallow
+        ;; list item, or content not indented past min-indent, stop and leave blanks
+        ;; unconsumed so parse-content can count them as trailing-blanks.
         (str/blank? line)
-        (let [next-non-blank (first (drop-while #(str/blank? (:line %)) more))]
+        (let [next-non-blank (first (drop-while #(str/blank? (:line %)) more))
+              next-line      (:line next-non-blank)]
           (if (or (nil? next-non-blank)
-                  (headline? (:line next-non-blank))
-                  (and (not (re-matches #"^\s+.*$" (:line next-non-blank)))
-                       (not (re-matches list-item-pattern (:line next-non-blank)))))
+                  (headline? next-line)
+                  (and (not (re-matches list-item-pattern next-line))
+                       (<= (leading-indent next-line) min-indent)))
             [collected remaining]
             (recur more (conj collected (first remaining)) false nil nil)))
 
-        ;; Indented continuation lines (more than min-indent) are included
-        (re-matches #"^\s+.*$" line)
+        ;; Indented continuation lines (strictly deeper than min-indent) are included
+        (> (leading-indent line) min-indent)
         (recur more (conj collected (first remaining)) false nil nil)
 
-        ;; Non-indented non-blank line ends the item (only outside blocks)
+        ;; Non-indented / shallow-indent non-blank line ends the item (only outside blocks)
         :else
         [collected remaining]))))
 

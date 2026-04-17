@@ -431,6 +431,22 @@
                     :list
                     (-> ast :children first :items first :children first :type)))
 
+         ;; --- Nested list: paragraph after sublist belongs to outer item ---
+         ;; A line re-indented to the outer item's content column (not past the
+         ;; sublist's marker) must attach to the outer item, not be absorbed by
+         ;; the last sublist item.
+         (let [ast (organ/parse-org
+                    "- outer\n  1. inner\n  2. last inner\n\n  tail paragraph\n")
+               outer (-> ast :children first :items first)
+               sublist (-> outer :children first)
+               last-inner (-> sublist :items last)]
+           (assert= "tail paragraph not absorbed by last inner item"
+                    nil
+                    (:children last-inner))
+           (assert= "tail paragraph is outer item's child"
+                    :paragraph
+                    (-> outer :children second :type)))
+
          ;; --- Src block args ---
          (let [ast (organ/parse-org "#+BEGIN_SRC python :results output\nprint(1)\n#+END_SRC")]
            (assert= "src block args"

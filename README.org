@@ -31,7 +31,7 @@ Filter and clean:
 As a Clojure CLI dependency:
 
 #+begin_src clojure
-org.clojars.bzg/organ {:mvn/version "2.0.1"}
+org.clojars.bzg/organ {:mvn/version "2.0.2"}
 #+end_src
 
 Works with both Clojure and [[https://babashka.org][Babashka]] (no external deps).
