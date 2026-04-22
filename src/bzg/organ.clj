@@ -1090,27 +1090,30 @@
       [nil indexed-lines])))
 
 (defn- parse-table [indexed-lines]
+  ;; A leading separator (before any row) is a top border and suppresses
+  ;; header interpretation — mirrors Emacs Org's ox-html behaviour.
   (let [start-line-num (:num (first indexed-lines))]
     (loop [[{:keys [line]} & more :as remaining] indexed-lines
-           rows [] has-separator false]
+           rows [] has-header false top-border? false]
       (cond
         (empty? remaining)
-        [(make-node :table :rows rows :has-header has-separator :line start-line-num) remaining]
+        [(make-node :table :rows rows :has-header has-header :line start-line-num) remaining]
 
         (re-matches table-separator-pattern line)
-        (if (seq rows)
-          (recur more rows true)
-          (recur more rows false))
+        (cond
+          (empty? rows) (recur more rows has-header true)
+          top-border?   (recur more rows has-header top-border?)
+          :else         (recur more rows true       top-border?))
 
         (re-matches table-pattern line)
         (let [row (->> (str/split (str/trim line) #"\|" -1)
                        rest
                        butlast
                        (mapv #(parse-inline (str/trim %))))]
-          (recur more (conj rows row) has-separator))
+          (recur more (conj rows row) has-header top-border?))
 
         :else
-        [(make-node :table :rows rows :has-header has-separator :line start-line-num) remaining]))))
+        [(make-node :table :rows rows :has-header has-header :line start-line-num) remaining]))))
 
 (defn- parse-block [indexed-lines]
   (let [{:keys [line num]} (first indexed-lines)]

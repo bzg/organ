@@ -530,6 +530,18 @@
                     "a"
                     (organ/inline-text (-> ast :children first :rows first first))))
 
+         ;; --- Leading separator suppresses header ---
+         (let [ast (organ/parse-org "|---+---|\n| a | b |\n| c | d |\n|---+---|\n| e | f |")]
+           (assert= "leading separator suppresses header"
+                    false
+                    (-> ast :children first :has-header)))
+
+         ;; --- Separator after rows without leading border = header ---
+         (let [ast (organ/parse-org "| a | b |\n| c | d |\n|---+---|\n| e | f |")]
+           (assert= "mid separator without top border marks header"
+                    true
+                    (-> ast :children first :has-header)))
+
          ;; ============================
          ;; Inline parsing: parse-inline
          ;; ============================
