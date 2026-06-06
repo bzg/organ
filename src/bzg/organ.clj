@@ -122,6 +122,26 @@
   (when-let [[_ repeater] (re-find org-repeater-pattern ts-str)]
     repeater))
 
+(def ^:private repeater-cookie-pattern #"^(\.\+|\+\+|\+)(\d+)([hdwmy])$")
+(def ^:private repeater-kind {"+" :cumulate "++" :catch-up ".+" :restart})
+(def ^:private repeater-unit {"h" :hour "d" :day "w" :week "m" :month "y" :year})
+
+(defn parse-repeater
+  "Parse a repeater/cookie string into a structured map, or nil.
+   The :kind reflects Org's three repeater forms:
+     +N  -> :cumulate  (shift by one interval)
+     ++N -> :catch-up  (shift to the next future occurrence)
+     .+N -> :restart   (shift relative to completion)
+   Units: h :hour, d :day, w :week, m :month, y :year.
+     +1w  -> {:n 1 :unit :week  :kind :cumulate}
+     ++2d -> {:n 2 :unit :day   :kind :catch-up}
+     .+1m -> {:n 1 :unit :month :kind :restart}
+     nil / unparseable -> nil"
+  [cookie]
+  (when cookie
+    (when-let [[_ k n u] (re-matches repeater-cookie-pattern cookie)]
+      {:n (parse-long n) :unit (repeater-unit u) :kind (repeater-kind k)})))
+
 (defn- parse-planning-line
   "Parse a planning information line into a map.
    Returns {:closed \"2025-01-15\" :scheduled \"2025-01-15T10:30\" :scheduled-repeat \"+1w\"} or nil."
@@ -543,8 +563,12 @@
   (let [pat (if active? active-timestamp-pattern inactive-timestamp-pattern)]
     (when-let [[full raw] (re-find-at pat text i)]
       (let [parsed (parse-org-timestamp raw)
-            repeater (parse-org-repeater raw)]
+            repeater (parse-org-repeater raw)
+            ;; For a time range (start/end), expose the two ends structurally
+            ;; in addition to the joined :value string (backward compatible).
+            range-parts (when (str/includes? parsed "/") (str/split parsed #"/"))]
         [(cond-> {:type :timestamp :raw raw :value parsed :active active?}
+           range-parts (assoc :start (first range-parts) :end (second range-parts))
            repeater (assoc :repeater repeater))
          (+ i (count full))]))))
 
@@ -1416,6 +1440,79 @@
          (if (seq errors)
            (assoc doc :parse-errors errors)
            doc))))))
+
+;; Timestamp collection
+(defn- timestamp-entry
+  "Build a uniform timestamp entry from a value string and metadata.
+   Splits a start/end range, flags all-day timestamps, and parses the repeater."
+  [{:keys [origin value repeater raw path title todo]}]
+  (let [range-parts (when (str/includes? value "/") (str/split value #"/"))
+        rep         (some-> repeater parse-repeater)]
+    (cond-> {:origin origin
+             :value value
+             :start (if range-parts (first range-parts) value)
+             :all-day (not (str/includes? value "T"))
+             :active true}
+      range-parts (assoc :end (second range-parts))
+      raw         (assoc :raw raw)
+      path        (assoc :path path)
+      title       (assoc :title title)
+      todo        (assoc :todo todo)
+      rep         (assoc :repeater rep))))
+
+(defn- inline-timestamp-entries
+  "Active inline timestamp entries found anywhere within `nodes`, tagged with
+   the enclosing section's `path`/`title`/`todo`."
+  [nodes path title todo]
+  (->> nodes
+       (mapcat #(tree-seq coll? (fn [x] (if (map? x) (vals x) (seq x))) %))
+       (filter #(and (map? %) (= :timestamp (:type %)) (:active %)))
+       (map #(timestamp-entry {:origin :inline :value (:value %) :repeater (:repeater %)
+                               :raw (:raw %) :path path :title title :todo todo}))))
+
+(defn active-timestamps
+  "Collect every active timestamp of the AST as a uniform sequence of entries.
+
+   Sources:
+   - inline active timestamps          -> :origin :inline
+   - SCHEDULED: planning               -> :origin :scheduled
+   - DEADLINE: planning                -> :origin :deadline
+   CLOSED planning and inactive ([...]) timestamps are excluded.
+
+   Each entry:
+     {:origin   :inline|:scheduled|:deadline
+      :value    \"2025-03-15T10:00/2025-03-15T11:00\"  ; raw ISO (compat)
+      :start    \"2025-03-15T10:00\"
+      :end      \"2025-03-15T11:00\"                    ; only for ranges
+      :all-day  false                                  ; true when no time part
+      :active   true
+      :repeater {:n 1 :unit :week :kind :cumulate}     ; only when present
+      :raw      \"<...>\"                               ; inline only
+      :title    \"Subsection\"                          ; enclosing heading text
+      :todo     :TODO                                   ; enclosing heading TODO state
+      :path     [\"Section\" \"Subsection\"]}           ; enclosing section path}"
+  [ast]
+  (let [nodes    (tree-seq coll? #(if (map? %) (vals %) (seq %)) ast)
+        sections (filter #(and (map? %) (= :section (:type %))) nodes)
+        non-section #(not= :section (:type %))]
+    (concat
+     ;; top-level content (before the first heading)
+     (inline-timestamp-entries (filter non-section (:children ast)) nil nil nil)
+     (mapcat
+      (fn [s]
+        (let [pl (:planning s), path (:path s)
+              title (inline-text (:title s)), todo (:todo s)]
+          (concat
+           (for [kw [:scheduled :deadline]
+                 :let [v (get pl kw)] :when v]
+             (timestamp-entry {:origin kw :value v
+                               :repeater (get pl (keyword (str (name kw) "-repeat")))
+                               :path path :title title :todo todo}))
+           ;; inline timestamps in this section's own title + non-section children
+           (inline-timestamp-entries
+            (concat (:title s) (filter non-section (:children s)))
+            path title todo))))
+      sections))))
 
 ;; AST Filtering
 (defn- section? [node] (= (:type node) :section))

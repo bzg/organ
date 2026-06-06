@@ -714,6 +714,61 @@
            (assert= "inactive timestamp active" false (:active ts))
            (assert= "inactive timestamp value" "2025-03-27" (:value ts)))
 
+         ;; --- Timestamp range exposes structured :start/:end ---
+         (let [ts (first (organ/parse-inline "<2025-03-27 Thu 09:00-12:00>"))]
+           (assert= "range timestamp :start" "2025-03-27T09:00" (:start ts))
+           (assert= "range timestamp :end" "2025-03-27T12:00" (:end ts))
+           (assert= "range timestamp value preserved"
+                    "2025-03-27T09:00/2025-03-27T12:00" (:value ts)))
+         (let [ts (first (organ/parse-inline "<2025-03-27 Thu 10:30>"))]
+           (assert= "non-range timestamp has no :end" nil (:end ts)))
+
+         ;; --- parse-repeater ---
+         (assert= "parse-repeater +1w" {:n 1 :unit :week :kind :cumulate}
+                  (organ/parse-repeater "+1w"))
+         (assert= "parse-repeater ++2d" {:n 2 :unit :day :kind :catch-up}
+                  (organ/parse-repeater "++2d"))
+         (assert= "parse-repeater .+1m" {:n 1 :unit :month :kind :restart}
+                  (organ/parse-repeater ".+1m"))
+         (assert= "parse-repeater nil" nil (organ/parse-repeater nil))
+         (assert= "parse-repeater garbage" nil (organ/parse-repeater "weekly"))
+
+         ;; --- active-timestamps: unified inline + planning ---
+         (let [ast (organ/parse-org
+                    "* Meeting\nSCHEDULED: <2025-03-15 Sat 10:00-11:00 +1w>\nNotes <2025-03-20 Thu>")
+               ts  (organ/active-timestamps ast)]
+           (assert= "active-timestamps count" 2 (count ts))
+           (assert= "active-timestamps origins" #{:scheduled :inline}
+                    (set (map :origin ts)))
+           (let [sched (first (filter #(= :scheduled (:origin %)) ts))]
+             (assert= "scheduled :start" "2025-03-15T10:00" (:start sched))
+             (assert= "scheduled :end" "2025-03-15T11:00" (:end sched))
+             (assert= "scheduled repeater parsed" {:n 1 :unit :week :kind :cumulate}
+                      (:repeater sched))
+             (assert= "scheduled :path" ["Meeting"] (:path sched))
+             (assert= "scheduled not all-day" false (:all-day sched)))
+           (let [inl (first (filter #(= :inline (:origin %)) ts))]
+             (assert= "inline all-day" true (:all-day inl))
+             (assert= "inline value" "2025-03-20" (:value inl))
+             (assert= "inline :path" ["Meeting"] (:path inl))))
+
+         ;; --- active-timestamps: DEADLINE origin ---
+         (let [ast (organ/parse-org "* Task\nDEADLINE: <2025-02-28 Fri>")
+               ts  (organ/active-timestamps ast)]
+           (assert= "deadline origin" :deadline (:origin (first ts))))
+
+         ;; --- active-timestamps excludes CLOSED + inactive ---
+         (let [ast (organ/parse-org
+                    "* DONE Task\nCLOSED: [2025-02-20 Thu 14:30]\nSee [2025-02-21 Fri]")]
+           (assert= "active-timestamps excludes closed/inactive"
+                    0 (count (organ/active-timestamps ast))))
+
+         ;; --- active-timestamps carries :title/:todo ---
+         (let [ast (organ/parse-org "* TODO Ship it\nSCHEDULED: <2025-03-15 Sat>")
+               e   (first (organ/active-timestamps ast))]
+           (assert= "entry :title" "Ship it" (:title e))
+           (assert= "entry :todo" :TODO (:todo e)))
+
          ;; --- Entity replacement in text nodes ---
          (assert= "entity in text node"
                   [{:type :text :value "α here"}]
