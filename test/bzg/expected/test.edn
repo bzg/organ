@@ -1,215 +1,461 @@
-{:title "Test Document",
+{:title [{:type :text, :value "Test Document"}],
  :meta
- {:title "Test Document",
-  :author "Test Author",
+ {:email "test@example.com",
   :date "2025-01-15",
-  :options "toc:t num:t H:3",
-  :_order [:title :author :date :options],
-  :_raw
-  ["#+TITLE: Test Document"
-   "#+AUTHOR: Test Author"
-   "#+DATE: 2025-01-15"
-   "#+OPTIONS: toc:t num:t H:3"]},
+  :title "Test Document",
+  :author ["Test Author" "Second Author"],
+  :language "en",
+  :subtitle "A Comprehensive Test",
+  :options "toc:t num:t H:3"},
  :children
  [{:content
-   "Some top-level paragraph with **bold**, *italic*, _underline_, ~~strikethrough~~, `code`, and `verbatim` markup.",
+   [{:type :text, :value "Some top-level paragraph with "}
+    {:type :bold, :children [{:type :text, :value "bold"}]}
+    {:type :text, :value ", "}
+    {:type :italic, :children [{:type :text, :value "italic"}]}
+    {:type :text, :value ", "}
+    {:type :underline, :children [{:type :text, :value "underline"}]}
+    {:type :text, :value ", "}
+    {:type :strike, :children [{:type :text, :value "strikethrough"}]}
+    {:type :text, :value ", "}
+    {:type :code, :value "code"}
+    {:type :text, :value ", and "}
+    {:type :verbatim, :value "verbatim"}
+    {:type :text, :value " markup."}],
+   :line 10,
    :type :paragraph}
   {:content
-   "A second paragraph with a [link with description](https://example.com) and a bare link [https://example.com](https://example.com).",
+   [{:type :text, :value "A second paragraph with a "}
+    {:type :link,
+     :url "https://example.com",
+     :children [{:type :text, :value "link with description"}],
+     :link-type :https,
+     :target "//example.com"}
+    {:type :text, :value " and a bare link "}
+    {:type :link,
+     :url "https://example.com",
+     :link-type :https,
+     :target "//example.com"}
+    {:type :text, :value "."}],
+   :line 13,
    :type :paragraph}
-  {:path ["First Section"],
+  {:level 1,
+   :title [{:type :text, :value "First Section"}],
+   :path ["First Section"],
+   :line 16,
    :blank-lines-before 1,
+   :blank-lines-after-title 1,
    :children
-   [{:content "Paragraph in first section.", :type :paragraph}
-    {:path ["First Section" "Nested Section"],
+   [{:content [{:type :text, :value "Paragraph in first section."}],
+     :line 18,
+     :type :paragraph}
+    {:level 2,
+     :title [{:type :text, :value "Nested Section"}],
+     :path ["First Section" "Nested Section"],
+     :line 20,
      :blank-lines-before 1,
+     :blank-lines-after-title 1,
      :children
      [{:content
-       "Paragraph in nested section with footnote reference[^1].",
+       [{:type :text,
+         :value "Paragraph in nested section with footnote reference"}
+        {:type :footnote-ref, :label "1"}
+        {:type :text, :value "."}],
+       :line 22,
        :type :paragraph}
-      {:path ["First Section" "Nested Section" "Deep Section"],
+      {:level 3,
+       :title [{:type :text, :value "Deep Section"}],
+       :path ["First Section" "Nested Section" "Deep Section"],
+       :line 24,
        :blank-lines-before 1,
-       :children [{:content "Deep content here.", :type :paragraph}],
-       :type :section,
        :blank-lines-after-title 1,
-       :title "Deep Section",
-       :level 3}],
-     :type :section,
-     :blank-lines-after-title 1,
-     :title "Nested Section",
-     :level 2}],
-   :type :section,
-   :blank-lines-after-title 1,
-   :title "First Section",
-   :level 1}
-  {:path ["Second Section [#A]"],
-   :properties ([:custom_id "second-section"]),
+       :children
+       [{:content [{:type :text, :value "Deep content here."}],
+         :line 26,
+         :type :paragraph}],
+       :type :section}],
+     :type :section}],
+   :type :section}
+  {:path ["Second Section"],
+   :properties {:custom_id "second-section"},
    :tags ["tag1" "tag2"],
    :blank-lines-before 1,
    :children
    [{:content
-     "This section has a TODO keyword, priority, tags, scheduling and properties.",
+     [{:type :text,
+       :value
+       "This section has a TODO keyword, priority, tags, scheduling and properties."}],
+     :line 34,
      :type :paragraph}],
    :type :section,
    :blank-lines-after-title 1,
-   :title "Second Section [#A]",
+   :title [{:type :text, :value "Second Section"}],
    :level 1,
+   :line 28,
+   :priority "A",
    :todo :TODO,
-   :planning {:scheduled "2025-03-15T10:00"}}
-  {:path ["Lists"],
+   :planning {:scheduled "2025-03-15T10:00", :scheduled-repeat "+1w"}}
+  {:path ["Completed Section"],
    :blank-lines-before 1,
    :children
-   [{:path ["Lists" "Unordered List"],
+   [{:content
+     [{:type :text,
+       :value
+       "This section has DONE keyword with CLOSED and DEADLINE planning."}],
+     :line 39,
+     :type :paragraph}],
+   :type :section,
+   :blank-lines-after-title 1,
+   :title [{:type :text, :value "Completed Section"}],
+   :level 1,
+   :line 36,
+   :todo :DONE,
+   :planning {:closed "2025-02-20T14:30", :deadline "2025-02-28"}}
+  {:level 1,
+   :title [{:type :text, :value "Lists"}],
+   :path ["Lists"],
+   :line 41,
+   :blank-lines-before 1,
+   :blank-lines-after-title 1,
+   :children
+   [{:level 2,
+     :title [{:type :text, :value "Unordered List"}],
+     :path ["Lists" "Unordered List"],
+     :line 43,
      :blank-lines-before 0,
+     :blank-lines-after-title 1,
      :children
      [{:items
-       [{:content "First item", :type :list-item}
-        {:content "Second item with **bold**", :type :list-item}
-        {:content "Third item",
+       [{:content [{:type :text, :value "First item"}],
+         :line 45,
+         :type :list-item}
+        {:content
+         [{:type :text, :value "Second item with "}
+          {:type :bold, :children [{:type :text, :value "bold"}]}],
+         :line 46,
+         :type :list-item}
+        {:content [{:type :text, :value "Third item"}],
          :children
          [{:items
-           [{:content "Nested item one", :type :list-item}
-            {:content "Nested item two", :type :list-item}],
+           [{:content [{:type :text, :value "Nested item one"}],
+             :line 48,
+             :type :list-item}
+            {:content [{:type :text, :value "Nested item two"}],
+             :line 49,
+             :type :list-item}],
            :ordered false,
+           :line 48,
            :type :list}],
+         :line 47,
          :type :list-item}],
        :ordered false,
+       :line 45,
        :type :list}],
-     :type :section,
-     :blank-lines-after-title 1,
-     :title "Unordered List",
-     :level 2}
-    {:path ["Lists" "Ordered List"],
+     :type :section}
+    {:level 2,
+     :title [{:type :text, :value "Ordered List"}],
+     :path ["Lists" "Ordered List"],
+     :line 51,
      :blank-lines-before 1,
+     :blank-lines-after-title 1,
      :children
      [{:items
-       [{:content "First", :type :list-item}
-        {:content "Second", :type :list-item}
-        {:content "Third", :type :list-item}],
+       [{:content [{:type :text, :value "First"}],
+         :line 53,
+         :type :list-item}
+        {:content [{:type :text, :value "Second"}],
+         :line 54,
+         :type :list-item}
+        {:content [{:type :text, :value "Third"}],
+         :line 55,
+         :type :list-item}],
        :ordered true,
+       :line 53,
        :type :list}],
-     :type :section,
-     :blank-lines-after-title 1,
-     :title "Ordered List",
-     :level 2}
-    {:path ["Lists" "Description List"],
+     :type :section}
+    {:level 2,
+     :title [{:type :text, :value "Description List"}],
+     :path ["Lists" "Description List"],
+     :line 57,
      :blank-lines-before 1,
+     :blank-lines-after-title 1,
      :children
      [{:items
-       [{:term "Emacs",
-         :definition "A self-documenting text editor",
+       [{:term [{:type :text, :value "Emacs"}],
+         :definition
+         [{:type :text, :value "A self-documenting text editor"}],
+         :line 59,
          :type :list-item}
-        {:term "Vim",
-         :definition "A modal text editor",
+        {:term [{:type :text, :value "Vim"}],
+         :definition [{:type :text, :value "A modal text editor"}],
+         :line 60,
          :type :list-item}
-        {:term "Nano",
-         :definition "A simple terminal editor",
+        {:term [{:type :text, :value "Nano"}],
+         :definition
+         [{:type :text, :value "A simple terminal editor"}],
+         :line 61,
          :type :list-item}],
        :ordered false,
-       :description "Emacs",
+       :description [{:type :text, :value "Emacs"}],
+       :line 59,
        :type :list}],
-     :type :section,
-     :blank-lines-after-title 1,
-     :title "Description List",
-     :level 2}],
-   :type :section,
-   :blank-lines-after-title 1,
-   :title "Lists",
-   :level 1}
-  {:path ["Tables"],
+     :type :section}],
+   :type :section}
+  {:level 1,
+   :title [{:type :text, :value "Tables"}],
+   :path ["Tables"],
+   :line 63,
    :blank-lines-before 1,
-   :children
-   [{:rows
-     [["Name" "Language" "Year"]
-      ["Emacs" "Lisp" "1976"]
-      ["Vim" "C" "1991"]
-      ["Nano" "C" "1999"]],
-     :has-header true,
-     :type :table}],
-   :type :section,
    :blank-lines-after-title 1,
-   :title "Tables",
-   :level 1}
-  {:path ["Blocks"],
-   :blank-lines-before 1,
    :children
-   [{:path ["Blocks" "Source Block"],
+   [{:level 2,
+     :title [{:type :text, :value "Table with Header"}],
+     :path ["Tables" "Table with Header"],
+     :line 65,
      :blank-lines-before 0,
+     :blank-lines-after-title 1,
+     :children
+     [{:rows
+       [[[{:type :text, :value "Name"}]
+         [{:type :text, :value "Language"}]
+         [{:type :text, :value "Year"}]]
+        [[{:type :text, :value "Emacs"}]
+         [{:type :text, :value "Lisp"}]
+         [{:type :text, :value "1976"}]]
+        [[{:type :text, :value "Vim"}]
+         [{:type :text, :value "C"}]
+         [{:type :text, :value "1991"}]]
+        [[{:type :text, :value "Nano"}]
+         [{:type :text, :value "C"}]
+         [{:type :text, :value "1999"}]]],
+       :has-header true,
+       :line 67,
+       :type :table}],
+     :type :section}
+    {:level 2,
+     :title [{:type :text, :value "Table without Header"}],
+     :path ["Tables" "Table without Header"],
+     :line 73,
+     :blank-lines-before 1,
+     :blank-lines-after-title 1,
+     :children
+     [{:rows
+       [[[{:type :text, :value "alpha"}] [{:type :text, :value "1"}]]
+        [[{:type :text, :value "beta"}] [{:type :text, :value "2"}]]
+        [[{:type :text, :value "gamma"}] [{:type :text, :value "3"}]]],
+       :has-header false,
+       :line 75,
+       :type :table}],
+     :type :section}],
+   :type :section}
+  {:level 1,
+   :title [{:type :text, :value "Blocks"}],
+   :path ["Blocks"],
+   :line 79,
+   :blank-lines-before 1,
+   :blank-lines-after-title 1,
+   :children
+   [{:level 2,
+     :title [{:type :text, :value "Source Block"}],
+     :path ["Blocks" "Source Block"],
+     :line 81,
+     :blank-lines-before 0,
+     :blank-lines-after-title 1,
      :children
      [{:language "clojure",
        :args "clojure",
        :content "(defn hello [name]\n  (println \"Hello,\" name))",
+       :line 83,
        :type :src-block}],
-     :type :section,
-     :blank-lines-after-title 1,
-     :title "Source Block",
-     :level 2}
-    {:path ["Blocks" "Quote Block"],
+     :type :section}
+    {:level 2,
+     :title [{:type :text, :value "Quote Block"}],
+     :path ["Blocks" "Quote Block"],
+     :line 88,
      :blank-lines-before 1,
+     :blank-lines-after-title 1,
      :children
-     [{:content
-       "The best way to predict the future is to invent it.\n-- Alan Kay",
+     [{:children
+       [{:content
+         [{:type :text,
+           :value
+           "The best way to predict the future is to invent it.\n-- Alan Kay"}],
+         :type :paragraph}],
+       :line 90,
        :type :quote-block}],
-     :type :section,
-     :blank-lines-after-title 1,
-     :title "Quote Block",
-     :level 2}
-    {:path ["Blocks" "Example Block"],
+     :type :section}
+    {:level 2,
+     :title [{:type :text, :value "Example Block"}],
+     :path ["Blocks" "Example Block"],
+     :line 95,
      :blank-lines-before 1,
+     :blank-lines-after-title 1,
      :children
      [{:block-type :example,
        :content "This is example text.\n  Indentation is preserved.",
+       :line 97,
        :type :block}],
-     :type :section,
+     :type :section}
+    {:level 2,
+     :title [{:type :text, :value "Center Block"}],
+     :path ["Blocks" "Center Block"],
+     :line 102,
+     :blank-lines-before 1,
      :blank-lines-after-title 1,
-     :title "Example Block",
-     :level 2}],
-   :type :section,
-   :blank-lines-after-title 1,
-   :title "Blocks",
-   :level 1}
-  {:path ["Inline Elements"],
+     :children
+     [{:block-type :center,
+       :content "Centered content here.",
+       :line 104,
+       :type :block}],
+     :type :section}
+    {:level 2,
+     :title [{:type :text, :value "Source Block with Comma Escaping"}],
+     :path ["Blocks" "Source Block with Comma Escaping"],
+     :line 108,
+     :blank-lines-before 1,
+     :blank-lines-after-title 1,
+     :children
+     [{:language "org",
+       :args "org",
+       :content
+       "* This looks like a headline but is escaped\n#+TITLE: This looks like a keyword but is escaped",
+       :line 110,
+       :type :src-block}],
+     :type :section}],
+   :type :section}
+  {:level 1,
+   :title [{:type :text, :value "HTML and LaTeX Lines"}],
+   :path ["HTML and LaTeX Lines"],
+   :line 115,
    :blank-lines-before 1,
+   :blank-lines-after-title 1,
+   :children
+   [{:content "<div class=\"custom\">Custom HTML</div>\n<hr/>",
+     :line 117,
+     :type :html-line}
+    {:content "\\newpage\n\\vspace{1cm}",
+     :line 120,
+     :type :latex-line}],
+   :type :section}
+  {:level 1,
+   :title [{:type :text, :value "Affiliated Keywords"}],
+   :path ["Affiliated Keywords"],
+   :line 123,
+   :blank-lines-before 1,
+   :blank-lines-after-title 1,
+   :children
+   [{:rows
+     [[[{:type :text, :value "x"}] [{:type :text, :value "y"}]]
+      [[{:type :text, :value "1"}] [{:type :text, :value "2"}]]],
+     :has-header false,
+     :line 128,
+     :type :table,
+     :affiliated
+     {:attr {:html {:width "80%", :class "striped"}},
+      :caption "A captioned table",
+      :name "my-table"}}],
+   :type :section}
+  {:level 1,
+   :title [{:type :text, :value "Org Entities"}],
+   :path ["Org Entities"],
+   :line 131,
+   :blank-lines-before 1,
+   :blank-lines-after-title 1,
    :children
    [{:content
-     "An image link: ![https://example.com/image.png](https://example.com/image.png).",
+     [{:type :text,
+       :value "The Greek letter α and arrow → and ellipsis … here."}],
+     :line 133,
+     :type :paragraph}],
+   :type :section}
+  {:level 1,
+   :title [{:type :text, :value "Inline Elements"}],
+   :path ["Inline Elements"],
+   :line 135,
+   :blank-lines-before 1,
+   :blank-lines-after-title 1,
+   :children
+   [{:content
+     [{:type :text, :value "An image link: "}
+      {:type :link,
+       :url "https://example.com/image.png",
+       :link-type :https,
+       :target "//example.com/image.png"}
+      {:type :text, :value "."}],
+     :line 137,
      :type :paragraph}
     {:content
-     "An image with description: [A photo](https://example.com/photo.jpg).",
+     [{:type :text, :value "An image with description: "}
+      {:type :link,
+       :url "https://example.com/photo.jpg",
+       :children [{:type :text, :value "A photo"}],
+       :link-type :https,
+       :target "//example.com/photo.jpg"}
+      {:type :text, :value "."}],
+     :line 139,
      :type :paragraph}
-    {:content "A mailto link: [Email me](mailto:test@example.com).",
+    {:content
+     [{:type :text, :value "A mailto link: "}
+      {:type :link,
+       :url "mailto:test@example.com",
+       :children [{:type :text, :value "Email me"}],
+       :link-type :mailto,
+       :target "test@example.com"}
+      {:type :text, :value "."}],
+     :line 141,
      :type :paragraph}
-    {:content "An internal link to [second-section](#second-section).",
+    {:content
+     [{:type :text, :value "An internal link to "}
+      {:type :link,
+       :url "#second-section",
+       :link-type :custom-id,
+       :target "second-section"}
+      {:type :text, :value "."}],
+     :line 143,
      :type :paragraph}],
-   :type :section,
-   :blank-lines-after-title 1,
-   :title "Inline Elements",
-   :level 1}
-  {:path ["Fixed Width and Comments"],
+   :type :section}
+  {:level 1,
+   :title [{:type :text, :value "Fixed Width and Comments"}],
+   :path ["Fixed Width and Comments"],
+   :line 145,
    :blank-lines-before 1,
+   :blank-lines-after-title 1,
    :children
    [{:content "This is fixed width text.\nSecond fixed width line.",
+     :line 147,
      :type :fixed-width}
     {:content "This is a comment.\nSecond comment line.",
+     :line 150,
      :type :comment}],
-   :type :section,
-   :blank-lines-after-title 1,
-   :title "Fixed Width and Comments",
-   :level 1}
-  {:path ["Footnotes"],
+   :type :section}
+  {:level 1,
+   :title [{:type :text, :value "Footnotes"}],
+   :path ["Footnotes"],
+   :line 153,
    :blank-lines-before 1,
+   :blank-lines-after-title 1,
    :children
-   [{:content "Paragraph referencing another footnote[^2].",
+   [{:content
+     [{:type :text, :value "Paragraph referencing another footnote"}
+      {:type :footnote-ref, :label "2"}
+      {:type :text, :value "."}],
+     :line 155,
+     :type :paragraph}
+    {:content
+     [{:type :text, :value "Paragraph with an inline footnote"}
+      {:type :footnote-inline,
+       :label "3",
+       :children [{:type :text, :value "This is defined inline"}]}
+      {:type :text, :value "."}],
+     :line 157,
      :type :paragraph}
     {:label "1",
-     :content "First footnote definition.",
+     :content [{:type :text, :value "First footnote definition."}],
+     :line 159,
      :type :footnote-def}
     {:label "2",
-     :content "Second footnote definition.",
+     :content [{:type :text, :value "Second footnote definition."}],
+     :line 161,
      :type :footnote-def}],
-   :type :section,
-   :blank-lines-after-title 1,
-   :title "Footnotes",
-   :level 1}],
+   :type :section}],
  :type :document}
-

@@ -861,6 +861,89 @@
                   :document
                   (:type (organ/parse-org nil)))
 
+         ;; --- Warning/delay cookies in timestamps ---
+         (let [ast (organ/parse-org "* TODO Task\nDEADLINE: <2025-02-28 Fri -2d>")]
+           (assert= "deadline with warning cookie"
+                    "2025-02-28"
+                    (-> ast :children first :planning :deadline)))
+
+         (let [ast (organ/parse-org "* T\nSCHEDULED: <2025-03-15 Sat 10:00 +1w -2d>")]
+           (assert= "scheduled with repeater and warning"
+                    ["2025-03-15T10:00" "+1w"]
+                    (let [p (-> ast :children first :planning)]
+                      [(:scheduled p) (:scheduled-repeat p)])))
+
+         (let [ts (first (organ/parse-inline "<2025-03-15 Sat -1d>"))]
+           (assert= "inline timestamp with warning cookie"
+                    ["2025-03-15" :timestamp]
+                    [(:value ts) (:type ts)]))
+
+         ;; --- Day name is optional in timestamps ---
+         (assert= "timestamp without day name"
+                  "2025-01-15"
+                  (:value (first (organ/parse-inline "<2025-01-15>"))))
+
+         (assert= "inactive timestamp without day name, with time"
+                  "2025-01-15T10:30"
+                  (:value (first (organ/parse-inline "[2025-01-15 10:30]"))))
+
+         ;; --- Footnote definition right after a paragraph ---
+         (assert= "footnote def not merged into preceding paragraph"
+                  [:paragraph :footnote-def]
+                  (->> (organ/parse-org "Para text.\n[fn:1] A note.")
+                       :children (mapv :type)))
+
+         ;; --- Unterminated property drawer keeps content (Emacs: paragraph) ---
+         (let [ast (organ/parse-org "* S\n:PROPERTIES:\n:ID: x\nBody\n* Next\nCorps")]
+           (assert= "unterminated property drawer keeps content and next section"
+                    [:paragraph "Next" true]
+                    [(-> ast :children first :children first :type)
+                     (-> ast :children second :title organ/inline-text)
+                     (boolean (seq (:parse-errors ast)))]))
+
+         ;; --- Unterminated generic drawer keeps content (Emacs: paragraph) ---
+         (let [ast (organ/parse-org "Avant.\n\n:ARCHIVE:\n\nTexte.\n\n* Titre\nCorps.")]
+           (assert= "unterminated drawer becomes paragraph, headline survives"
+                    [[:paragraph :paragraph :paragraph :section] "Titre"]
+                    [(mapv :type (:children ast))
+                     (-> ast :children last :title organ/inline-text)]))
+
+         ;; --- Affiliated keywords before content at document top ---
+         (let [ast (organ/parse-org "#+CAPTION: My cap\n| a |\n| 1 |")]
+           (assert= "caption at document top"
+                    "My cap"
+                    (-> ast :children first :affiliated :caption)))
+
+         ;; --- Stray planning line is kept as a paragraph ---
+         (let [ast (organ/parse-org "Text\n\nSCHEDULED: <2025-01-01 Wed>\n\nAfter")]
+           (assert= "stray planning line kept as paragraph"
+                    [3 "SCHEDULED: <2025-01-01 Wed>"]
+                    [(count (:children ast))
+                     (organ/inline-text (-> ast :children second :content))]))
+
+         ;; --- Invalid planning timestamp leaves no nil in the AST ---
+         (let [ast (organ/parse-org "* T\nSCHEDULED: <someday>")]
+           (assert= "invalid planning timestamp yields no planning key"
+                    nil
+                    (-> ast :children first :planning)))
+
+         ;; --- Table row without trailing pipe ---
+         (let [ast (organ/parse-org "| a | b |\n| c | d")]
+           (assert= "row without trailing pipe is a table row with all cells"
+                    [2 "d"]
+                    [(-> ast :children first :rows count)
+                     (organ/inline-text (-> ast :children first :rows second second))]))
+
+         ;; --- Comma escaping follows org-src rules ---
+         (let [ast (organ/parse-org "#+BEGIN_SRC org\n,* t\n,,* deep\n,# literal\n  ,#+kw\n#+END_SRC")]
+           (assert= "comma unescape: one comma removed, ,# kept literal"
+                    "* t\n,* deep\n,# literal\n  #+kw"
+                    (-> ast :children first :content)))
+
+         (assert= "escape-block-content escapes * #+ and ,*"
+                  ",* a\n,,* b\n,#+kw\ntext"
+                  (organ/escape-block-content "* a\n,* b\n#+kw\ntext"))
+
          ;; --- Test from test.org file if available ---
          (let [test-file "test/bzg/test.org"]
            (if (.exists (java.io.File. test-file))

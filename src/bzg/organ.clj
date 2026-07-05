@@ -45,8 +45,10 @@
 (def ^:private property-pattern #"^\s*:([\w_-]+):\s*(.*)$")
 (def ^:private list-item-pattern #"^(\s*)(-|\+|\*|\d+[.)])\s+(.*)$")
 (def ^:private description-item-pattern #"^(.+?)\s+::(?:\s+(.*))?$")
-(def ^:private table-pattern #"^\s*\|.*\|\s*$")
-(def ^:private table-separator-pattern #"^\s*\|-.*\|\s*$")
+;; Any line whose first non-blank character is | is a table line (the final
+;; pipe is optional), as in Emacs org-element.
+(def ^:private table-pattern #"^\s*\|.*$")
+(def ^:private table-separator-pattern #"^\s*\|-.*$")
 (def ^:private generic-block-begin-pattern #"(?i)^\s*#\+BEGIN_(\w+)(?:\s+(.*))?$")
 (def ^:private metadata-pattern #"^\s*#\+(\w+):\s*(.*)$")
 (def ^:private comment-pattern #"^\s*#(?:\s.*|$)")
@@ -85,8 +87,20 @@
                       (java.util.regex.Pattern/quote env)
                       "\\}\\s*$")))))
 
+;; Timestamp innards, mirroring Emacs org-ts-regexp: date, then an optional
+;; day name (which may not contain digits), an optional time or time range,
+;; then anything else (repeater, warning/delay cookie) up to the closer.
+;; `closer` is the regex-escaped closing character (">" or "\\]").
+(defn- ts-inner-pattern [closer]
+  (str "(\\d{4})-(\\d{2})-(\\d{2})"
+       "(?:\\s+[^\\s\\d+" closer "-]+)?"
+       "(?:\\s+(\\d{1,2}):(\\d{2})(?:-(\\d{1,2}):(\\d{2}))?)?"
+       "[^\\n" closer "]*"))
+
 ;; Planning line (CLOSED, SCHEDULED, DEADLINE)
-(def ^:private org-timestamp-pattern #"<(\d{4})-(\d{2})-(\d{2})\s+\S+(?:\s+(\d{1,2}):(\d{2})(?:-(\d{1,2}):(\d{2}))?)?(?:\s+[.+]?[+]?\d+[hdwmy])*\s*>|\[(\d{4})-(\d{2})-(\d{2})\s+\S+(?:\s+(\d{1,2}):(\d{2})(?:-(\d{1,2}):(\d{2}))?)?(?:\s+[.+]?[+]?\d+[hdwmy])*\s*\]")
+(def ^:private org-timestamp-pattern
+  (re-pattern (str "<" (ts-inner-pattern ">") ">"
+                   "|\\[" (ts-inner-pattern "\\]") "\\]")))
 (def ^:private org-repeater-pattern #"(?:^|[\s])([.+]?\+\d+[hdwmy])")
 (def ^:private planning-keyword-pattern #"^(CLOSED|SCHEDULED|DEADLINE):\s*")
 (def ^:private planning-line-pattern #"^\s*((?:(?:CLOSED|SCHEDULED|DEADLINE):\s*(?:<[^>]+>|\[[^\]]+\])\s*)+)\s*$")
@@ -161,8 +175,12 @@
                       repeater (parse-org-repeater ts-match)
                       kw-key (keyword (str/lower-case kw))
                       rest-str (str/trim (subs after-kw (count ts-match)))]
-                  (recur rest-str (cond-> (assoc result kw-key iso)
-                                    repeater (assoc (-> kw str/lower-case (str "-repeat") keyword) repeater))))
+                  ;; An unparseable timestamp yields no entry rather than a nil
+                  ;; value (Emacs produces a planning element with nil values).
+                  (recur rest-str (cond-> result
+                                    iso (assoc kw-key iso)
+                                    (and iso repeater)
+                                    (assoc (-> kw str/lower-case (str "-repeat") keyword) repeater))))
                 (when (seq result) result)))
             (when (seq result) result)))))))
 
@@ -278,20 +296,18 @@
     :latex-env-begin :affiliated :planning :metadata})
 
 (defn- unescape-comma
-  "Remove leading comma escape from a line inside a block.
-   A comma escapes lines starting with * or #+ inside blocks."
+  "Remove the first comma of a comma-escaped line inside a block.
+   Mirrors Emacs org-unescape-code-in-string: un-escaping removes one comma
+   from lines starting (after optional indentation) with ,* ,#+ ,,* or ,,#+."
   [line]
-  (if (re-matches #"^,([\*#]).*" line)
-    (subs line 1)
-    line))
+  (str/replace-first line #"^([ \t]*),(,*(?:\*|#\+))" "$1$2"))
 
 (defn- escape-comma
-  "Add leading comma to escape lines that need it inside blocks.
-   Lines starting with * or #+ need escaping."
+  "Add a leading comma to escape lines that need it inside blocks.
+   Mirrors Emacs org-escape-code-in-string: lines starting (after optional
+   indentation) with * #+ ,* or ,#+ get one comma prepended."
   [line]
-  (if (re-matches #"^(?:\*|#\+).*" line)
-    (str "," line)
-    line))
+  (str/replace-first line #"^([ \t]*)(,*(?:\*|#\+))" "$1,$2"))
 
 (defn- transform-block-lines
   "Apply a per-line transform to block content."
@@ -299,12 +315,13 @@
   (->> (str/split-lines content) (map f) (str/join "\n")))
 
 (def escape-block-content
-  "Add comma escapes to lines that need it in block content."
+  "Add comma escapes to lines that need it in block content.
+   Public helper for consumers writing block content back to Org text;
+   the parser itself only unescapes."
   (partial transform-block-lines escape-comma))
 
-(defn- hard-break? [current-line next-line in-block]
-  (or in-block
-      (str/blank? current-line)
+(defn- hard-break? [current-line next-line]
+  (or (str/blank? current-line)
       (str/blank? next-line)
       (headline? current-line)
       (headline? next-line)
@@ -326,6 +343,7 @@
       (re-matches drawer-end-pattern next-line)
       (planning-line? current-line)
       (planning-line? next-line)
+      (footnote-def? next-line)
       (latex-env-begin? next-line)))
 
 ;; Org entities - maps \name to Unicode/ASCII equivalent
@@ -555,9 +573,9 @@
          (+ i (count full))])))
 
 (def ^:private active-timestamp-pattern
-  #"^(<\d{4}-\d{2}-\d{2}\s+\S+(?:\s+\d{1,2}:\d{2}(?:-\d{1,2}:\d{2})?)?(?:\s+[.+]?[+]?\d+[hdwmy])*\s*>)")
+  (re-pattern (str "^(<" (ts-inner-pattern ">") ">)")))
 (def ^:private inactive-timestamp-pattern
-  #"^(\[\d{4}-\d{2}-\d{2}\s+\S+(?:\s+\d{1,2}:\d{2}(?:-\d{1,2}:\d{2})?)?(?:\s+[.+]?[+]?\d+[hdwmy])*\s*\])")
+  (re-pattern (str "^(\\[" (ts-inner-pattern "\\]") "\\])")))
 
 (defn- try-parse-timestamp [text i active?]
   (let [pat (if active? active-timestamp-pattern inactive-timestamp-pattern)]
@@ -733,7 +751,7 @@
               (if-let [[_ env] (re-matches latex-env-begin-pattern line)]
                 (recur (conj result current) rest-lines true env
                        (latex-env-end-pattern-for env))
-                (if (or (nil? next-line) (hard-break? line next-line false))
+                (if (or (nil? next-line) (hard-break? line next-line))
                   (recur (conj result current) rest-lines false nil nil)
                   (let [trimmed-next    (str/trim next-line)
                         normalized-next (if (list-item? line)
@@ -864,8 +882,11 @@
                      (assoc meta kw new-val)
                      (if (some #{kw} order) order (conj order kw))
                      (conj raw line)))
-            ;; Content directives (#+html:, #+latex:, #+BEGIN_*): stop metadata parsing
-            (or (html-line? line) (latex-line? line) (block-begin? line))
+            ;; Content directives (#+html:, #+latex:, #+BEGIN_*) and affiliated
+            ;; keywords (#+caption:, #+name:, #+attr_*: — they belong to the
+            ;; next element): stop metadata parsing
+            (or (html-line? line) (latex-line? line) (block-begin? line)
+                (affiliated-keyword? line))
             [(assoc meta :_order order :_raw raw) remaining]
             ;; Other unknown keywords: skip
             :else
@@ -874,50 +895,51 @@
           (recur more meta order raw)
           [(assoc meta :_order order :_raw raw) remaining])))))
 
-(defn- parse-property-drawer [indexed-lines]
+(defn- parse-property-drawer
+  "Parse a :PROPERTIES: drawer at the head of indexed-lines.
+   Returns [nil properties remaining], or nil when the drawer is unterminated
+   before the next headline — Emacs then treats the lines as a paragraph, so
+   callers must fall back without consuming anything."
+  [indexed-lines]
   (if (and (seq indexed-lines)
            (re-matches property-drawer-start-pattern (:line (first indexed-lines))))
-    (let [start-line-num (:num (first indexed-lines))]
-      (loop [[{:keys [line]} & more :as remaining] (rest indexed-lines)
-             properties {}]
-        (cond
-          (empty? remaining)
-          (do (add-parse-error! start-line-num "Unterminated property drawer")
-              [nil properties []])
+    (loop [[{:keys [line]} & more :as remaining] (rest indexed-lines)
+           properties {}]
+      (cond
+        (or (empty? remaining) (headline? line))
+        nil
 
-          (re-matches property-drawer-end-pattern line)
-          [nil properties more]
+        (re-matches property-drawer-end-pattern line)
+        [nil properties more]
 
-          :else
-          (if-let [[_ key value] (re-matches property-pattern line)]
-            (recur more (assoc properties (keyword (str/lower-case key)) (str/trim value)))
-            (recur more properties)))))
+        :else
+        (if-let [[_ key value] (re-matches property-pattern line)]
+          (recur more (assoc properties (keyword (str/lower-case key)) (str/trim value)))
+          (recur more properties))))
     [nil {} indexed-lines]))
 
 (defn- parse-drawer
   "Parse a generic drawer (:NAME: ... :END:).
-   Returns [drawer-node remaining-lines] or nil."
+   Returns [drawer-node remaining-lines], or nil when there is no :END: before
+   the next headline or end of input — Emacs then treats the lines as a
+   paragraph, so callers must fall back without consuming anything."
   [indexed-lines]
   (let [{:keys [line num]} (first indexed-lines)]
     (when-let [[_ drawer-name] (re-matches drawer-start-pattern line)]
       (when (not (re-matches property-drawer-start-pattern line))
-        (loop [[{:keys [line]} & more :as remaining] (rest indexed-lines)
+        (loop [[{l :line} & more :as remaining] (rest indexed-lines)
                content []]
           (cond
-            (empty? remaining)
-            (do (add-parse-error! num (str "Unterminated drawer " drawer-name))
-                [(make-node :drawer :drawer-name (str/lower-case drawer-name)
-                            :content (str/join "\n" content) :line num
-                            :warning (str "Unterminated drawer " drawer-name))
-                 []])
+            (or (empty? remaining) (headline? l))
+            nil
 
-            (re-matches drawer-end-pattern line)
+            (re-matches drawer-end-pattern l)
             [(make-node :drawer :drawer-name (str/lower-case drawer-name)
                         :content (str/join "\n" content) :line num)
              more]
 
             :else
-            (recur more (conj content line))))))))
+            (recur more (conj content l))))))))
 
 (defn- parse-description-item
   "Check if content matches a description list item (term :: definition).
@@ -1023,7 +1045,7 @@
 (defn- parse-list-items [indexed-lines initial-indent initial-marker]
   (let [normalized-initial (normalize-marker initial-marker)]
     (loop [[{:keys [line num]} & more :as remaining] indexed-lines
-           items [] current-item nil after-blank false]
+           items [] current-item nil]
       (if (or (empty? remaining) (nil? line))
         [(flush-item items current-item) remaining]
         (let [li-match (list-item-match line)]
@@ -1032,12 +1054,14 @@
             (headline? line)
             [(flush-item items current-item) remaining]
 
-            ;; New list item at same indent level with same marker type
+            ;; New list item at same indent level with same marker type.
+            ;; Deeper list items never reach this loop: collect-list-item-body
+            ;; consumes them into the current item's body, where parse-content
+            ;; builds the sublist.
             (and li-match
                  (let [[indent marker _] li-match]
                    (and (= (count indent) initial-indent)
-                        (= (normalize-marker marker) normalized-initial)
-                        (not (and after-blank (= initial-indent 0) (= marker "*"))))))
+                        (= (normalize-marker marker) normalized-initial))))
             (let [[_indent _marker content] li-match
                   desc-item (parse-description-item content)
                   [body-lines rest-after-body] (collect-list-item-body more initial-indent)
@@ -1071,21 +1095,7 @@
                                         :line num))]
               (recur rest-after-body
                      (flush-item items current-item)
-                     new-item
-                     false))
-
-            ;; Nested list item (deeper indent) - starts a new sublist with its own marker
-            (and li-match
-                 (let [[indent _ _] li-match]
-                   (> (count indent) initial-indent)))
-            (if current-item
-              (let [[indent marker _] li-match
-                    sub-is-ordered (ordered-marker? marker)
-                    [sublist-items rest-lines] (parse-list-items remaining (count indent) marker)
-                    sublist (make-node :list :items sublist-items :ordered sub-is-ordered)
-                    updated-item (update current-item :children conj sublist)]
-                (recur rest-lines (flush-item items updated-item) nil false))
-              (recur more items current-item after-blank))
+                     new-item))
 
             ;; Blank line - peek ahead: if the next non-blank line would end the list,
             ;; leave blanks unconsumed so parse-content can count them as trailing-blanks.
@@ -1097,7 +1107,7 @@
                              (and (= (count indent) initial-indent)
                                   (= (normalize-marker marker) normalized-initial)))))
                 [(flush-item items current-item) remaining]
-                (recur more items current-item true)))
+                (recur more items current-item)))
 
             ;; End of list (different marker, less indent, or non-continuation line)
             :else
@@ -1130,10 +1140,12 @@
           :else         (recur more rows true       top-border?))
 
         (re-matches table-pattern line)
-        (let [row (->> (str/split (str/trim line) #"\|" -1)
-                       rest
-                       butlast
-                       (mapv #(parse-inline (str/trim %))))]
+        (let [trimmed (str/trim line)
+              cells (rest (str/split trimmed #"\|" -1))
+              ;; A trailing | closes the last cell; without it the last
+              ;; field is still a cell (Emacs accepts both).
+              cells (if (str/ends-with? trimmed "|") (butlast cells) cells)
+              row (mapv #(parse-inline (str/trim %)) cells)]
           (recur more (conj rows row) has-header top-border?))
 
         :else
@@ -1259,6 +1271,14 @@
                         :line start-line-num) remaining])
           (recur more (conj content line)))))))
 
+(defn- parse-paragraph-forced
+  "Parse a paragraph treating the first line as plain text even if its ltype
+   would normally break a paragraph. Fallback for malformed input (e.g. an
+   unterminated drawer), which Emacs parses as a paragraph."
+  [indexed-lines]
+  (parse-paragraph (cons (assoc (first indexed-lines) :ltype :text)
+                         (rest indexed-lines))))
+
 (defn- try-parse
   "Try a parser; return [rest-lines updated-nodes] or nil if parser returned nil."
   [parser remaining nodes]
@@ -1279,18 +1299,6 @@
         (try-parse parser remaining nodes))
       [(rest remaining) nodes]))
 
-(def ^:private simple-line-parsers
-  [[comment-line?     parse-comment]
-   [fixed-width-line? parse-fixed-width]
-   [html-line?        parse-html-lines]
-   [latex-line?       parse-latex-lines]
-   [footnote-def?     parse-footnote-definition]])
-
-(defn- find-simple-parser
-  "Return the parser fn for a line matched by simple-line-parsers, or nil."
-  [line]
-  (some (fn [[pred parser]] (when (pred line) parser)) simple-line-parsers))
-
 (defn- parse-content [indexed-lines]
   (loop [[{:keys [line ltype]} & more :as remaining] indexed-lines
          nodes []
@@ -1310,15 +1318,25 @@
           (recur rest-lines nodes affiliated 0))
 
         :property-drawer-start
-        (let [[_ properties rest-lines] (parse-property-drawer remaining)
-              drawer-node (make-node :property-drawer :properties properties
-                                     :line (:num (first remaining)))]
-          (recur rest-lines (conj nodes drawer-node) nil 0))
+        (if-let [[_ properties rest-lines] (parse-property-drawer remaining)]
+          (let [drawer-node (make-node :property-drawer :properties properties
+                                       :line (:num (first remaining)))]
+            (recur rest-lines (conj nodes drawer-node) nil 0))
+          ;; Unterminated: keep the lines as a paragraph (Emacs behavior)
+          (let [{:keys [num]} (first remaining)
+                _ (add-parse-error! num "Unterminated property drawer")
+                [paragraph rest-lines] (parse-paragraph-forced remaining)]
+            (recur rest-lines (conj nodes (attach-affiliated paragraph pending-affiliated)) nil 0)))
 
         :drawer-start
         (if-let [[drawer-node rest-lines] (parse-drawer remaining)]
           (recur rest-lines (conj nodes drawer-node) nil 0)
-          (recur more nodes pending-affiliated 0))
+          ;; Unterminated: keep the lines as a paragraph (Emacs behavior)
+          (let [{:keys [num]} (first remaining)
+                [_ dname] (re-matches drawer-start-pattern line)
+                _ (add-parse-error! num (str "Unterminated drawer " dname))
+                [paragraph rest-lines] (parse-paragraph-forced remaining)]
+            (recur rest-lines (conj nodes (attach-affiliated paragraph pending-affiliated)) nil 0)))
 
         :metadata
         (if (ignored-keyword-line? line)
@@ -1354,8 +1372,12 @@
         (let [[rest-lines nodes'] (try-parse-maybe-affiliated parse-latex-environment remaining nodes pending-affiliated)]
           (recur rest-lines nodes' nil 0))
 
-        ;; :text, :planning, and any other type -> paragraph
-        (if-let [[paragraph rest-lines] (parse-paragraph remaining)]
+        ;; :text, :planning, and any other type -> paragraph. A planning line
+        ;; reaching this point is not right after a headline (those are
+        ;; consumed by parse-sections): Emacs treats it as plain text.
+        (if-let [[paragraph rest-lines] (if (= ltype :planning)
+                                          (parse-paragraph-forced remaining)
+                                          (parse-paragraph remaining))]
           (recur rest-lines (conj nodes (attach-affiliated paragraph pending-affiliated)) nil 0)
           (recur more nodes nil 0))))))
 
@@ -1388,7 +1410,11 @@
                    (if (and (seq more) (planning-line? (:line (first more))))
                      [(parse-planning-line (:line (first more))) (rest more)]
                      [nil more])
-                   [_ properties rest-after-props]      (parse-property-drawer rest-after-planning)
+                   ;; An unterminated property drawer falls through to
+                   ;; parse-content, which keeps its lines as a paragraph.
+                   [_ properties rest-after-props]
+                   (or (parse-property-drawer rest-after-planning)
+                       [nil {} rest-after-planning])
                    ;; Count blank lines immediately after headline/properties (before content)
                    [blanks-after-title rest-after-title-blanks]
                    (loop [lines rest-after-props n 0]
