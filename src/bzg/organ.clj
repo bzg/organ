@@ -324,31 +324,46 @@
    the parser itself only unescapes."
   (partial transform-block-lines escape-comma))
 
+(def ^:private unwrap-break-current-pattern
+  "Union of the line patterns that break unwrapping when the line is the
+   current one: blank, headline, metadata, table, comment, any `:key:` line
+   (subsumes property lines, drawer start/end, :PROPERTIES:/:END:),
+   fixed-width and planning. A single native regex match replaces a dozen
+   predicate calls, which matters under SCI (Babashka) where each call is
+   interpreted. Keep in sync with the individual patterns above."
+  #"(?x)\*+\s.*                # headline (anchored at column 0)
+    |\s*
+     (?:\#\+\w+:.*             # metadata
+       |\|.*                   # table
+       |\#(?:\s.*)?            # comment
+       |:[\w_-]+:.*            # property line, drawer start/end
+       |:\ .*                  # fixed width
+       |(?:(?:CLOSED|SCHEDULED|DEADLINE):\s*(?:<[^>]+>|\[[^\]]+\])\s*)+ # planning
+     )?                        # empty alternative: blank line
+   ")
+
+(def ^:private unwrap-break-next-pattern
+  "Like unwrap-break-current-pattern, plus the patterns that only break
+   unwrapping as the next line: list item, block begin, footnote
+   definition and LaTeX environment begin."
+  #"(?x)\*+\s.*                # headline (anchored at column 0)
+    |\[fn:[^\]]+\].*           # footnote definition (anchored at column 0)
+    |\s*
+     (?:\#\+\w+:.*             # metadata
+       |\|.*                   # table
+       |\#(?:\s.*)?            # comment
+       |:[\w_-]+:.*            # property line, drawer start/end
+       |:\ .*                  # fixed width
+       |(?:(?:CLOSED|SCHEDULED|DEADLINE):\s*(?:<[^>]+>|\[[^\]]+\])\s*)+ # planning
+       |(?:[-+*]|\d+[.)])\s.*  # list item
+       |\#\+(?i:BEGIN).*       # block begin
+       |\\begin\{[^}]+\}\s*    # LaTeX environment begin
+     )?                        # empty alternative: blank line
+   ")
+
 (defn- hard-break? [current-line next-line]
-  (or (str/blank? current-line)
-      (str/blank? next-line)
-      (headline? current-line)
-      (headline? next-line)
-      (metadata-line? current-line)
-      (metadata-line? next-line)
-      (list-item? next-line)
-      (table-line? current-line)
-      (table-line? next-line)
-      (block-begin? next-line)
-      (comment-line? current-line)
-      (comment-line? next-line)
-      (fixed-width-line? current-line)
-      (fixed-width-line? next-line)
-      (property-line? current-line)
-      (property-line? next-line)
-      (drawer-start? current-line)
-      (drawer-start? next-line)
-      (re-matches drawer-end-pattern current-line)
-      (re-matches drawer-end-pattern next-line)
-      (planning-line? current-line)
-      (planning-line? next-line)
-      (footnote-def? next-line)
-      (latex-env-begin? next-line)))
+  (or (some? (re-matches unwrap-break-current-pattern current-line))
+      (some? (re-matches unwrap-break-next-pattern next-line))))
 
 ;; Org entities - maps \name to Unicode/ASCII equivalent
 (def ^:private org-entities
@@ -504,21 +519,21 @@
 
 (defn- find-close-marker
   "Find matching close position for an emphasis or literal marker.
-   Returns index of closing marker, or nil."
+   Returns index of closing marker, or nil.
+   Jumps between marker occurrences with String.indexOf so the scan runs
+   at host speed even when the surrounding code is interpreted (Babashka)."
   [^String text ^long open marker]
-  (let [marker (char marker)
+  (let [mc (int (char marker))
         len (.length text)
         content-start (inc open)]
     (when (and (< content-start len)
                (not (Character/isWhitespace (.charAt text content-start))))
-      (loop [j content-start]
-        (when (< j len)
-          (if (and (= (.charAt text j) marker)
-                   (> j content-start)
-                   (not (Character/isWhitespace (.charAt text (dec j))))
+      (loop [j (.indexOf text mc (inc content-start))]
+        (when (pos? j)
+          (if (and (not (Character/isWhitespace (.charAt text (dec j))))
                    (emphasis-post? text j))
             j
-            (recur (inc j))))))))
+            (recur (.indexOf text mc (inc j)))))))))
 
 (defn- classify-link-url
   "Classify a link URL into type and target."
@@ -620,9 +635,17 @@
                  (match-latex-fragment text i latex-dollar-pattern  :dollar))))
     nil))
 
+(def ^:private inline-special-pattern
+  "Characters that can start an inline node: links, footnotes and inactive
+   timestamps ([), active timestamps (<), emphasis (* / _ +), literals (~ =),
+   LaTeX fragments (\\ $). Plain text between two special characters is
+   copied in a single step, which keeps the scan at host speed under SCI."
+  #"[\[<*/_+~=$\\]")
+
 (defn- do-parse-inline [^String text]
   (let [len (.length text)
         buf (StringBuilder.)
+        matcher (.matcher ^java.util.regex.Pattern inline-special-pattern text)
         flush-buf! (fn [nodes]
                      (if (pos? (.length buf))
                        (let [t (replace-entities (.toString buf))]
@@ -630,11 +653,16 @@
                          (conj nodes {:type :text :value t}))
                        nodes))
         skip! (fn [c] (.append buf c))]
-    (loop [i (long 0) nodes []]
-      (if (>= i len)
+    (loop [pos (long 0) nodes []]
+      (if (>= pos len)
         (flush-buf! nodes)
-        (let [c (.charAt text i)]
-          (cond
+        (let [i (if (.find matcher (int pos)) (long (.start matcher)) (long len))]
+          (when (> i pos)
+            (.append buf ^CharSequence text (int pos) (int i)))
+          (if (>= i len)
+            (flush-buf! nodes)
+            (let [c (.charAt text i)]
+              (cond
             ;; Link: [[
             (and (= c \[) (< (inc i) len) (= (.charAt text (inc i)) \[))
             (if-let [[node end] (try-parse-link text i)]
@@ -689,7 +717,7 @@
 
             ;; Plain character
             :else
-            (do (skip! c) (recur (inc i) nodes))))))))
+            (do (skip! c) (recur (inc i) nodes))))))))))
 
 (defn parse-inline
   "Parse Org inline markup into a vector of typed nodes.
