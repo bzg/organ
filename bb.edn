@@ -2,4 +2,15 @@
  :tasks
  {test {:doc  "Run organ tests"
         :task (do (require 'bzg.organ-test)
-                  ((resolve 'bzg.organ-test/test-all)))}}}
+                  ((resolve 'bzg.organ-test/test-all)))}
+  check-reflection
+  {:doc  "Fail when JVM compilation of bzg.organ emits reflection warnings"
+   :task (let [{:keys [exit err]}
+               (shell {:err :string :continue true}
+                      "clojure" "-M" "-e" "(require 'bzg.organ)")]
+           (when (or (not (zero? exit))
+                     (clojure.string/includes? err "Reflection warning"))
+             (print err)
+             (println "check-reflection: FAILED")
+             (System/exit 1))
+           (println "check-reflection: OK"))}}}

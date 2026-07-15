@@ -7,6 +7,10 @@
   (:require [clojure.string :as str]
             [clojure.pprint :as pprint]))
 
+;; Interop calls in the hot parsing paths must stay reflection-free;
+;; this makes any regression visible at JVM compile time (no-op in bb).
+(set! *warn-on-reflection* true)
+
 (def ^:dynamic *parse-errors* nil)
 
 (defn- add-parse-error! [line-num message]
@@ -273,7 +277,7 @@
                (not (re-matches drawer-end-pattern line))) :drawer-start
           :else :text)
 
-        (or (= fc \-) (= fc \+) (Character/isDigit fc))
+        (or (= fc \-) (= fc \+) (Character/isDigit (char fc)))
         (if (re-matches list-item-simple-pattern line) :list-item :text)
 
         (= fc \\)
@@ -486,13 +490,13 @@
 
 (def ^:private emphasis-post-punct #{\- \. \, \; \: \! \? \' \" \) \} \[})
 
-(defn- emphasis-pre? [text i]
+(defn- emphasis-pre? [^String text ^long i]
   (or (zero? i)
       (let [c (.charAt text (dec i))]
         (or (Character/isSpaceChar c) (Character/isWhitespace c)
             (contains? emphasis-pre-punct c)))))
 
-(defn- emphasis-post? [text i]
+(defn- emphasis-post? [^String text ^long i]
   (or (= i (dec (.length text)))
       (let [c (.charAt text (inc i))]
         (or (Character/isSpaceChar c) (Character/isWhitespace c)
@@ -501,8 +505,9 @@
 (defn- find-close-marker
   "Find matching close position for an emphasis or literal marker.
    Returns index of closing marker, or nil."
-  [text open marker]
-  (let [len (.length text)
+  [^String text ^long open marker]
+  (let [marker (char marker)
+        len (.length text)
         content-start (inc open)]
     (when (and (< content-start len)
                (not (Character/isWhitespace (.charAt text content-start))))
@@ -605,7 +610,7 @@
   "Try to parse a LaTeX math fragment starting at position i.
    Recognises \\(...\\), \\[...\\], $$...$$, and $...$ (Org's strict rule).
    Returns [node end] or nil."
-  [text i]
+  [^String text ^long i]
   (case (.charAt text i)
     \\ (or (match-latex-fragment text i latex-paren-pattern   :paren)
            (match-latex-fragment text i latex-bracket-pattern :bracket))
@@ -615,7 +620,7 @@
                  (match-latex-fragment text i latex-dollar-pattern  :dollar))))
     nil))
 
-(defn- do-parse-inline [text]
+(defn- do-parse-inline [^String text]
   (let [len (.length text)
         buf (StringBuilder.)
         flush-buf! (fn [nodes]
@@ -625,7 +630,7 @@
                          (conj nodes {:type :text :value t}))
                        nodes))
         skip! (fn [c] (.append buf c))]
-    (loop [i 0 nodes []]
+    (loop [i (long 0) nodes []]
       (if (>= i len)
         (flush-buf! nodes)
         (let [c (.charAt text i)]
@@ -633,20 +638,20 @@
             ;; Link: [[
             (and (= c \[) (< (inc i) len) (= (.charAt text (inc i)) \[))
             (if-let [[node end] (try-parse-link text i)]
-              (recur end (conj (flush-buf! nodes) node))
+              (recur (long end) (conj (flush-buf! nodes) node))
               (do (skip! c) (recur (inc i) nodes)))
 
             ;; Footnote: [fn:
             (and (= c \[) (<= (+ i 4) len) (= (subs text i (+ i 4)) "[fn:"))
             (if-let [[node end] (try-parse-footnote text i)]
-              (recur end (conj (flush-buf! nodes) node))
+              (recur (long end) (conj (flush-buf! nodes) node))
               (do (skip! c) (recur (inc i) nodes)))
 
             ;; Active timestamp: <YYYY-
             (and (= c \<) (<= (+ i 6) len)
                  (Character/isDigit (.charAt text (inc i))))
             (if-let [[node end] (try-parse-timestamp text i true)]
-              (recur end (conj (flush-buf! nodes) node))
+              (recur (long end) (conj (flush-buf! nodes) node))
               (do (skip! c) (recur (inc i) nodes)))
 
             ;; Inactive timestamp: [YYYY- (not link, not footnote)
@@ -655,13 +660,13 @@
                  (not= (.charAt text (inc i)) \f)
                  (Character/isDigit (.charAt text (inc i))))
             (if-let [[node end] (try-parse-timestamp text i false)]
-              (recur end (conj (flush-buf! nodes) node))
+              (recur (long end) (conj (flush-buf! nodes) node))
               (do (skip! c) (recur (inc i) nodes)))
 
             ;; Emphasis: * / _ +
             (and (contains? emphasis-type c) (emphasis-pre? text i))
             (if-let [close (find-close-marker text i c)]
-              (recur (inc close)
+              (recur (long (inc close))
                      (conj (flush-buf! nodes)
                            {:type (emphasis-type c)
                             :children (do-parse-inline (subs text (inc i) close))}))
@@ -670,7 +675,7 @@
             ;; Code/verbatim: ~ =
             (and (contains? literal-type c) (emphasis-pre? text i))
             (if-let [close (find-close-marker text i c)]
-              (recur (inc close)
+              (recur (long (inc close))
                      (conj (flush-buf! nodes)
                            {:type (literal-type c)
                             :value (subs text (inc i) close)}))
@@ -679,7 +684,7 @@
             ;; LaTeX fragment: \( \[ $ $$
             (or (= c \\) (= c \$))
             (if-let [[node end] (try-parse-latex-fragment text i)]
-              (recur end (conj (flush-buf! nodes) node))
+              (recur (long end) (conj (flush-buf! nodes) node))
               (do (skip! c) (recur (inc i) nodes)))
 
             ;; Plain character
