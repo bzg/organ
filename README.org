@@ -10,13 +10,31 @@ A Clojure library to parse [[https://orgmode.org][Org mode]] text into an AST (E
 (require '[bzg.organ :as organ])
 
 (organ/parse-org "* Hello\nSome *bold* text")
-;; => {:type :document, :title "Untitled Document", :children [...]}
+;; => {:type :document, :title "Untitled Document",
+;;     :todo-keywords {:todo ["TODO"], :done ["DONE"]}, :children [...]}
 
 (organ/format-ast-as-edn (organ/parse-org (slurp "notes.org")))
 #+end_src
 
 Text fields in the AST preserve raw Org markup. Rendering is left to
 consumers (see [[https://github.com/bzg/hop][hop]]).
+
+TODO keywords: headlines are matched against =TODO= and =DONE= by
+default. =#+TODO:=, =#+SEQ_TODO:= and =#+TYP_TODO:= directives found
+anywhere in the file replace this default set for the whole document
+(as in Emacs Org, including =|= separators and fast-access selectors
+like =TODO(t)=). Keywords coming from your Emacs configuration rather
+than from the file can be passed with the =:todo-keywords= option,
+which extends the effective set:
+
+#+begin_src clojure
+(organ/parse-org org-string {:todo-keywords "NEXT STRT WAIT | CANX"})
+;; or {:todo-keywords {:todo ["NEXT"] :done ["CANX"]}}
+#+end_src
+
+The effective set is exposed on the document node as =:todo-keywords=
+(={:todo [...] :done [...]}=), and =parse-todo-keywords= extracts the
+directive-defined set from raw Org text.
 
 Filter and clean:
 
@@ -31,7 +49,7 @@ Filter and clean:
 As a Clojure CLI dependency:
 
 #+begin_src clojure
-org.clojars.bzg/organ {:mvn/version "3.0.0"}
+org.clojars.bzg/organ {:mvn/version "3.2.0"}
 #+end_src
 
 Works with both Clojure and [[https://babashka.org][Babashka]] (no external deps).

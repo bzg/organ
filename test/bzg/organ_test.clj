@@ -944,6 +944,77 @@
                   ",* a\n,,* b\n,#+kw\ntext"
                   (organ/escape-block-content "* a\n,* b\n#+kw\ntext"))
 
+         ;; --- Custom TODO keywords ---
+         (let [ast (organ/parse-org "#+TODO: TODO NEXT WAIT | DONE CANX\n* WAIT [#A] Task :work:")]
+           (assert= "directive keyword recognised, priority and tags parsed"
+                    [:WAIT "A" "Task" ["work"]]
+                    (-> ast :children first
+                        ((juxt :todo :priority
+                               #(organ/inline-text (:title %)) :tags)))))
+
+         (assert= "effective keywords exposed on the document node"
+                  {:todo ["TODO" "NEXT" "WAIT"] :done ["DONE" "CANX"]}
+                  (:todo-keywords
+                   (organ/parse-org "#+TODO: TODO NEXT WAIT | DONE CANX\n* T")))
+
+         (assert= "default set without directive"
+                  [{:todo ["TODO"] :done ["DONE"]} nil]
+                  (let [ast (organ/parse-org "* WAIT Task")]
+                    [(:todo-keywords ast) (-> ast :children first :todo)]))
+
+         (assert= "directive replaces the default set"
+                  nil
+                  (-> (organ/parse-org "#+TODO: OPEN | CLOSED\n* TODO Task")
+                      :children first :todo))
+
+         (assert= "directive applies to headings before it"
+                  :NEXT
+                  (-> (organ/parse-org "* NEXT Task\n#+TODO: TODO NEXT | DONE")
+                      :children first :todo))
+
+         (assert= "directive without bar: last word is DONE"
+                  {:todo ["OPEN"] :done ["CLOSED"]}
+                  (organ/parse-todo-keywords "#+SEQ_TODO: OPEN CLOSED"))
+
+         (assert= "fast-access selectors are stripped"
+                  {:todo ["TODO" "WAIT"] :done ["DONE"]}
+                  (organ/parse-todo-keywords "#+TODO: TODO(t) WAIT(w@/!) | DONE(d!)"))
+
+         (assert= "multiple directives accumulate"
+                  {:todo ["TODO" "OPEN"] :done ["DONE" "CLOSED"]}
+                  (organ/parse-todo-keywords
+                   "#+TODO: TODO | DONE\n#+TYP_TODO: OPEN | CLOSED"))
+
+         (assert= ":todo-keywords option as directive-syntax string"
+                  :STRT
+                  (-> (organ/parse-org "* STRT Task" {:todo-keywords "STRT |"})
+                      :children first :todo))
+
+         (assert= ":todo-keywords option extends the default set"
+                  [:NEXT :TODO]
+                  (let [ast (organ/parse-org "* NEXT A\n* TODO B"
+                                             {:todo-keywords {:todo ["NEXT"]}})]
+                    (mapv :todo (:children ast))))
+
+         (let [ast (organ/parse-org "#+TODO: TODO WAIT | DONE\n* WAIT Task\nSCHEDULED: <2026-08-03 Mon>")]
+           (assert= "active-timestamps carries custom keyword"
+                    :WAIT
+                    (-> (organ/active-timestamps ast) first :todo)))
+
+         (assert= "keywords are deduplicated across sources"
+                  {:todo ["TODO"] :done ["DONE" "CANX"]}
+                  (:todo-keywords
+                   (organ/parse-org "* T" {:todo-keywords {:done ["DONE" "CANX"]}})))
+
+         (assert= "malformed directive with several bars yields no | keyword"
+                  {:todo ["A"] :done ["B" "C"]}
+                  (organ/parse-todo-keywords "#+TODO: A | B | C"))
+
+         (assert= "empty directive falls back to the default set"
+                  [{:todo ["TODO"] :done ["DONE"]} :TODO]
+                  (let [ast (organ/parse-org "#+TODO:\n* TODO Task")]
+                    [(:todo-keywords ast) (-> ast :children first :todo)]))
+
          ;; --- Test from test.org file if available ---
          (let [test-file "test/bzg/test.org"]
            (if (.exists (java.io.File. test-file))

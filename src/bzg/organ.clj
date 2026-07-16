@@ -40,7 +40,6 @@
   (and (some? s) (not (str/blank? s))))
 
 ;; Regex Patterns
-(def ^:private headline-full-pattern #"^(\*+)\s+(?:(TODO|DONE)\s+)?(?:\[#([A-Z])\]\s+)?(.+?)(?:\s+(:[:\w@]+:))?\s*$")
 (def ^:private headline-pattern #"^(\*+)\s+(.*)$")
 (def ^:private property-drawer-start-pattern #"^\s*:PROPERTIES:\s*$")
 (def ^:private property-drawer-end-pattern #"^\s*:END:\s*$")
@@ -80,6 +79,82 @@
   #"^\$([^ \t\r\n,;.$])\$(?=$|[- \t\r\n.,?;:'\")\\|^])")
 (def ^:private latex-dollar-pattern
   #"^\$([^ \t\r\n,;.$](?:[^$\r\n]*?(?:\n[^$\r\n]*?){0,2})?[^ \t\r\n,.$])\$(?=$|[- \t\r\n.,?;:'\")\\|^])")
+
+;; TODO keywords. The default set (TODO|DONE) can be replaced per file by
+;; #+TODO:/#+SEQ_TODO:/#+TYP_TODO: directives — wherever they appear in the
+;; file, they apply to the whole document, as in Emacs Org — or extended via
+;; the :todo-keywords option of parse-org.
+(def ^:private default-todo-keywords {:todo ["TODO"] :done ["DONE"]})
+
+(def ^:private todo-directive-pattern
+  #"(?im)^[ \t]*#\+(?:TODO|SEQ_TODO|TYP_TODO):[ \t]*(.*)$")
+
+(defn- directive-words
+  "Split a directive right-hand side into keywords, dropping fast-access
+   selectors such as (t) or (w@/!) and stray | separators."
+  [s]
+  (->> (str/split (str/trim s) #"\s+")
+       (map #(str/replace % #"\(.*\)$" ""))
+       (remove str/blank?)
+       (remove #{"|"})
+       vec))
+
+(defn- todo-sequence
+  "{:todo [...] :done [...]} from one directive right-hand side. Words after
+   a | separator are DONE states; without a separator the last word is the
+   DONE state (Org convention)."
+  [rhs]
+  (if (str/includes? rhs "|")
+    (let [[l r] (str/split rhs #"\|" 2)]
+      {:todo (directive-words l) :done (directive-words r)})
+    (let [ws (directive-words rhs)]
+      {:todo (vec (butlast ws)) :done (vec (take-last 1 ws))})))
+
+(defn- merge-todo-sequences [seqs]
+  (-> (reduce (fn [acc m]
+                (-> acc
+                    (update :todo into (:todo m))
+                    (update :done into (:done m))))
+              {:todo [] :done []}
+              seqs)
+      (update :todo (comp vec distinct))
+      (update :done (comp vec distinct))))
+
+(defn parse-todo-keywords
+  "Per-file TODO keywords from #+TODO:/#+SEQ_TODO:/#+TYP_TODO: directives,
+   as {:todo [...] :done [...]}, or nil when the text has none (or only
+   empty directives). Multiple directives accumulate, mirroring Emacs Org
+   sequences."
+  [org-content]
+  (let [seqs (map second (re-seq todo-directive-pattern (or org-content "")))
+        m    (merge-todo-sequences (map todo-sequence seqs))]
+    (when (or (seq (:todo m)) (seq (:done m))) m)))
+
+(defn- normalize-todo-keywords
+  "Coerce the :todo-keywords option into {:todo [...] :done [...]}: accepts
+   that map directly, or a string in directive syntax (\"TODO NEXT | DONE\").
+   Returns nil for an absent or empty option."
+  [kws]
+  (let [m (cond
+            (map? kws)    {:todo (vec (:todo kws)) :done (vec (:done kws))}
+            (string? kws) (todo-sequence kws)
+            :else         nil)]
+    (when (seq (concat (:todo m) (:done m))) m)))
+
+(defn- headline-pattern-for
+  "Full headline regex recognising the given {:todo [...] :done [...]}
+   keywords (falls back to the default set when both are empty)."
+  [{:keys [todo done]}]
+  (let [kws (distinct (concat todo done))
+        kws (if (seq kws) kws (concat (:todo default-todo-keywords)
+                                      (:done default-todo-keywords)))]
+    (re-pattern
+     (str "^(\\*+)\\s+(?:("
+          (str/join "|" (map #(java.util.regex.Pattern/quote %) kws))
+          ")\\s+)?(?:\\[#([A-Z])\\]\\s+)?(.+?)(?:\\s+(:[:\\w@]+:))?\\s*$"))))
+
+(def ^:private ^:dynamic *headline-full-pattern*
+  (headline-pattern-for default-todo-keywords))
 
 ;; LaTeX environment (block-level): \begin{env} ... \end{env}
 (def ^:private latex-env-begin-pattern #"^\s*\\begin\{([^}]+)\}\s*$")
@@ -878,7 +953,7 @@
 
 ;; Parsing Functions
 (defn- parse-headline [line]
-  (if-let [[_ stars todo priority title tags] (re-matches headline-full-pattern line)]
+  (if-let [[_ stars todo priority title tags] (re-matches *headline-full-pattern* line)]
     {:level (count stars)
      :title (str/trim title)
      :todo (when todo (keyword todo))
@@ -1477,28 +1552,43 @@
          [sections remaining blanks-before])))))
 
 (defn parse-org
+  "Parse Org text into an AST. Options:
+   :unwrap?        join continuation lines (default true)
+   :todo-keywords  extra TODO keywords to recognise on headlines, as
+                   {:todo [...] :done [...]} or a string in directive
+                   syntax (\"TODO NEXT | DONE CANX\"). #+TODO:-style
+                   directives found in the file replace the default
+                   TODO/DONE set (as in Emacs Org); this option extends
+                   whichever set is in effect. The effective set is
+                   exposed as :todo-keywords on the document node."
   ([org-content] (parse-org org-content {}))
-  ([org-content {:keys [unwrap?] :or {unwrap? true}}]
+  ([org-content {:keys [unwrap? todo-keywords] :or {unwrap? true}}]
    (if (nil? org-content)
      (parse-org "" {})
-     (binding [*parse-errors* (volatile! [])]
-       (let [raw-lines (if unwrap?
-                         (unwrap-text-indexed org-content)
-                         (index-lines (str/split-lines org-content)))
-             indexed-lines (mapv enrich-line raw-lines)
-             [meta-raw rest-after-meta] (parse-metadata indexed-lines)
-             meta (dissoc meta-raw :_order :_raw)
-             title-raw (get meta :title "Untitled Document")
-             [top-level-content rest-after-content content-trailing-blanks] (parse-content rest-after-meta)
-             [sections _ _] (parse-sections rest-after-content [] nil content-trailing-blanks)
-             errors @*parse-errors*
-             doc (make-node :document
-                            :title (parse-inline title-raw)
-                            :meta meta
-                            :children (vec (concat top-level-content sections)))]
-         (if (seq errors)
-           (assoc doc :parse-errors errors)
-           doc))))))
+     (let [file-kws (parse-todo-keywords org-content)
+           opt-kws  (normalize-todo-keywords todo-keywords)
+           kws      (merge-todo-sequences
+                     (remove nil? [(or file-kws default-todo-keywords) opt-kws]))]
+       (binding [*parse-errors* (volatile! [])
+                 *headline-full-pattern* (headline-pattern-for kws)]
+         (let [raw-lines (if unwrap?
+                           (unwrap-text-indexed org-content)
+                           (index-lines (str/split-lines org-content)))
+               indexed-lines (mapv enrich-line raw-lines)
+               [meta-raw rest-after-meta] (parse-metadata indexed-lines)
+               meta (dissoc meta-raw :_order :_raw)
+               title-raw (get meta :title "Untitled Document")
+               [top-level-content rest-after-content content-trailing-blanks] (parse-content rest-after-meta)
+               [sections _ _] (parse-sections rest-after-content [] nil content-trailing-blanks)
+               errors @*parse-errors*
+               doc (make-node :document
+                              :title (parse-inline title-raw)
+                              :meta meta
+                              :todo-keywords kws
+                              :children (vec (concat top-level-content sections)))]
+           (if (seq errors)
+             (assoc doc :parse-errors errors)
+             doc)))))))
 
 ;; Timestamp collection
 (defn- timestamp-entry
