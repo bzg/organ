@@ -166,14 +166,19 @@
                       (java.util.regex.Pattern/quote env)
                       "\\}\\s*$")))))
 
-;; Timestamp innards, mirroring Emacs org-ts-regexp: date, then an optional
-;; day name (which may not contain digits), an optional time or time range,
-;; then anything else (repeater, warning/delay cookie) up to the closer.
+;; Timestamp innards, loosely mirroring Emacs org-ts-regexp: date, then an
+;; optional day name (which may not contain digits), an optional time or
+;; time range, then anything else (repeater, warning/delay cookie) up to
+;; the closer. Unlike Emacs (which normalises out-of-range hour/minute via
+;; encode-time), hour/minute are bounded here (0-23 / 0-59) so an invalid
+;; time degrades to a shorter timestamp instead of producing an illegal
+;; ISO value downstream.
 ;; `closer` is the regex-escaped closing character (">" or "\\]").
 (defn- ts-inner-pattern [closer]
   (str "(\\d{4})-(\\d{2})-(\\d{2})"
        "(?:\\s+[^\\s\\d+" closer "-]+)?"
-       "(?:\\s+(\\d{1,2}):(\\d{2})(?:-(\\d{1,2}):(\\d{2}))?)?"
+       "(?:\\s+((?:[01]?\\d|2[0-3])):([0-5]\\d)"
+       "(?:-((?:[01]?\\d|2[0-3])):([0-5]\\d))?)?"
        "[^\\n" closer "]*"))
 
 ;; Planning line (CLOSED, SCHEDULED, DEADLINE)
