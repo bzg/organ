@@ -927,6 +927,24 @@
                     nil
                     (-> ast :children first :planning)))
 
+         ;; --- Out-of-range end hour is dropped, start time is kept ---
+         (let [ast (organ/parse-org "* T\nSCHEDULED: <2026-07-24 Fri 12:00-25:30>")]
+           (assert= "out-of-range end hour drops the range, keeps start time"
+                    "2026-07-24T12:00"
+                    (-> ast :children first :planning :scheduled)))
+
+         ;; --- Out-of-range start hour falls back to date-only ---
+         (let [ast (organ/parse-org "* T\nSCHEDULED: <2026-07-24 Fri 25:30>")]
+           (assert= "out-of-range start hour falls back to date-only"
+                    "2026-07-24"
+                    (-> ast :children first :planning :scheduled)))
+
+         ;; --- Out-of-range minute falls back to date-only ---
+         (let [ast (organ/parse-org "* T\nSCHEDULED: <2026-07-24 Fri 12:65>")]
+           (assert= "out-of-range minute falls back to date-only"
+                    "2026-07-24"
+                    (-> ast :children first :planning :scheduled)))
+
          ;; --- Table row without trailing pipe ---
          (let [ast (organ/parse-org "| a | b |\n| c | d")]
            (assert= "row without trailing pipe is a table row with all cells"
