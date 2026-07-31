@@ -310,6 +310,14 @@
   (and (re-matches drawer-start-pattern line)
        (not (re-matches property-drawer-start-pattern line))
        (not (re-matches drawer-end-pattern line))))
+(defn- drawer-terminated?
+  "True if a :END: line occurs before the next headline or end of input."
+  [indexed-lines]
+  (->> indexed-lines
+       (map :line)
+       (take-while #(not (headline? %)))
+       (some #(re-matches drawer-end-pattern %))
+       boolean))
 (defn- list-item? [line] (re-matches list-item-simple-pattern line))
 (defn- affiliated-keyword? [line] (re-matches affiliated-keyword-pattern line))
 
@@ -1110,6 +1118,14 @@
         (let [[_ btype] block-begin-match]
           (recur more (conj collected (first remaining)) true btype
                  (end-pattern-for btype)))
+
+        ;; Drawer opened on a continuation line: the item extends to the
+        ;; drawer's :END: even when the drawer contents are not indented
+        (and (not in-block)
+             (> (leading-indent line) min-indent)
+             (drawer-start? line)
+             (drawer-terminated? more))
+        (recur more (conj collected (first remaining)) true "drawer" drawer-end-pattern)
 
         ;; Track block end
         (and in-block
