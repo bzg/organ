@@ -492,6 +492,22 @@
                     "results"
                     (-> ast :children first :children first :drawer-name)))
 
+         ;; --- Drawer in a list item, contents not indented ---
+         (let [ast (organ/parse-org "* S\n- item\n  :data:\nNot indented\n\nStill inside\n:END:\n- next")]
+           (assert= "drawer attached to its list item"
+                    :drawer
+                    (-> ast :children first :children first :items first :children first :type)))
+
+         (let [ast (organ/parse-org "* S\n- item\n  :data:\nNot indented\n\nStill inside\n:END:\n- next")]
+           (assert= "unindented drawer content"
+                    "Not indented\n\nStill inside"
+                    (-> ast :children first :children first :items first :children first :content)))
+
+         (let [ast (organ/parse-org "* S\n- item\n  :data:\nNot indented\n\nStill inside\n:END:\n- next")]
+           (assert= "list continues after item drawer"
+                    2
+                    (-> ast :children first :children first :items count)))
+
          ;; --- Tags with @ ---
          (assert= "tags with @"
                   ["@home" "work"]
