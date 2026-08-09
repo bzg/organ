@@ -44,12 +44,30 @@ Filter and clean:
     organ/clean-node)
 #+end_src
 
+Extract plain text from a vector of inline nodes:
+
+#+begin_src clojure
+(organ/inline-text (organ/parse-inline "See [[https://x.com][Example]]"))
+;; => "See Example"
+#+end_src
+
+A link written /without/ a description contributes its raw URL, which
+is noise when extracting prose (search indexes, feed descriptions, word
+counts).  The =:bare-link= option changes this, either with =:omit= or
+with a function of the link node, to decide link by link:
+
+#+begin_src clojure
+;; Drop image links, whose URL is invisible in rendered output, and
+;; keep plain links, whose URL is the visible text.
+(organ/inline-text nodes {:bare-link #(when-not (image-url? (:url %)) (:url %))})
+#+end_src
+
 * Install
 
 As a Clojure CLI dependency:
 
 #+begin_src clojure
-org.clojars.bzg/organ {:mvn/version "3.2.2"}
+org.clojars.bzg/organ {:mvn/version "3.3.0"}
 #+end_src
 
 Works with both Clojure and [[https://babashka.org][Babashka]] (no external deps).

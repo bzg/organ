@@ -847,6 +847,48 @@
                   "https://x.com"
                   (organ/inline-text (organ/parse-inline "[[https://x.com]]")))
 
+         (assert= "inline-text :bare-link :omit drops a bare URL"
+                  "see  here"
+                  (organ/inline-text (organ/parse-inline "see [[https://x.com]] here")
+                                     {:bare-link :omit}))
+
+         (assert= "inline-text :bare-link :omit keeps a link description"
+                  "see Example here"
+                  (organ/inline-text (organ/parse-inline "see [[https://x.com][Example]] here")
+                                     {:bare-link :omit}))
+
+         (assert= "inline-text :bare-link :omit recurses into nested nodes"
+                  "bold  end"
+                  (organ/inline-text (organ/parse-inline "*bold [[https://x.com]]* end")
+                                     {:bare-link :omit}))
+
+         (assert= "inline-text :bare-link :omit drops a bare file: link"
+                  ""
+                  (organ/inline-text (organ/parse-inline "[[file:~/photo.jpg]]")
+                                     {:bare-link :omit}))
+
+         (assert= "inline-text unknown :bare-link value keeps the default"
+                  "https://x.com"
+                  (organ/inline-text (organ/parse-inline "[[https://x.com]]")
+                                     {:bare-link :nonsense}))
+
+         (assert= "inline-text :bare-link as a function decides per link"
+                  ["see https://x.com here" "see  here"]
+                  (let [drop-images #(when-not (re-find #"\.jpg$" (:url %)) (:url %))]
+                    [(organ/inline-text (organ/parse-inline "see [[https://x.com]] here")
+                                        {:bare-link drop-images})
+                     (organ/inline-text (organ/parse-inline "see [[https://x.com/a.jpg]] here")
+                                        {:bare-link drop-images})]))
+
+         (assert= "inline-text :bare-link function still yields to a description"
+                  "see Example here"
+                  (organ/inline-text (organ/parse-inline "see [[https://x.com/a.jpg][Example]] here")
+                                     {:bare-link (constantly "NOPE")}))
+
+         (assert= "inline-text empty opts keeps the default"
+                  "https://x.com"
+                  (organ/inline-text (organ/parse-inline "[[https://x.com]]") {}))
+
          (assert= "inline-text nil input"
                   nil
                   (organ/inline-text nil))

@@ -815,9 +815,7 @@
     []
     (do-parse-inline (str/trim text))))
 
-(defn inline-text
-  "Extract plain text from a vector of inline nodes."
-  [nodes]
+(defn- do-inline-text [nodes bare-link]
   (when (seq nodes)
     (str/join
      (map (fn [node]
@@ -835,10 +833,39 @@
               :footnote-ref (str "[fn:" (:label node) "]")
               :footnote-inline ""
               :link (if (seq (:children node))
-                      (inline-text (:children node))
-                      (:url node))
-              (if (:children node) (inline-text (:children node)) "")))
+                      (do-inline-text (:children node) bare-link)
+                      (bare-link node))
+              (if (:children node) (do-inline-text (:children node) bare-link) "")))
           nodes))))
+
+(defn- bare-link-fn
+  "Resolve the :bare-link option into a node → string function."
+  [v]
+  (cond
+    (= :omit v) (constantly "")
+    (fn? v)     v
+    :else       :url))                  ; :url, and any unknown value, keep the URL
+
+(defn inline-text
+  "Extract plain text from a vector of inline nodes.
+
+   A link with a description always contributes its description; the
+   option below only governs a link written without one, where there is
+   no text to fall back on. Options:
+
+   :bare-link  :url   the raw URL (default)
+               :omit  nothing at all
+               f      a function of the link node returning the text to
+                      use (nil counts as none) — lets callers decide per
+                      link, e.g. dropping image links, whose URL is not
+                      visible in rendered output, while keeping the URL
+                      of plain links, which is:
+                        #(when-not (image-url? (:url %)) (:url %))
+
+   Contributing nothing leaves the spaces that surrounded the link, so
+   callers wanting tidy output should collapse whitespace afterwards."
+  ([nodes] (do-inline-text nodes :url))
+  ([nodes opts] (do-inline-text nodes (bare-link-fn (get opts :bare-link :url)))))
 
 (defn- unwrap-text-indexed
   "Unwrap text while preserving original line numbers.
