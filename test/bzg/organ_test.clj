@@ -1091,6 +1091,64 @@
                   (let [ast (organ/parse-org "#+TODO:\n* TODO Task")]
                     [(:todo-keywords ast) (-> ast :children first :todo)]))
 
+         ;; --- Preamble: every keyword kept, in file order, past 8 keys ---
+         (let [ast (organ/parse-org (str "#+TITLE: T\n#+TODO: TODO | DONE\n#+STARTUP: overview\n"
+                                         "#+FILETAGS: :a:\n#+PROPERTY: x 1\n#+HTML_HEAD: <a>\n"
+                                         "\n#+html_head: <b>\n#+LANGUAGE: fr\n#+AUTHOR: A\n"
+                                         "#+DATE: 2026\n\nText"))]
+           (assert= "preamble keeps unknown keywords in file order"
+                    [[:title :todo :startup :filetags :property :html_head :language :author :date]
+                     "TODO | DONE" ["<a>" "<b>"] :paragraph]
+                    [(vec (keys (:meta ast)))
+                     (-> ast :meta :todo)
+                     (-> ast :meta :html_head)
+                     (-> ast :children first :type)]))
+
+         (assert= "preamble stops at content directives and affiliated keywords"
+                  [{:title "T"} :html-line {:title "T"} :table]
+                  (let [a (organ/parse-org "#+TITLE: T\n#+html: <hr>\n#+AUTHOR: X\n")
+                        b (organ/parse-org "#+TITLE: T\n#+NAME: tbl\n| a |\n")]
+                    [(:meta a) (-> a :children first :type)
+                     (:meta b) (-> b :children first :type)]))
+
+         (assert= "repeated #+TITLE: lines are joined for the document title"
+                  ["A B" ["A" "B"]]
+                  (let [ast (organ/parse-org "#+TITLE: A\n#+TITLE: B\n\nx")]
+                    [(organ/inline-text (:title ast)) (-> ast :meta :title)]))
+
+         (assert= "no preamble yields no :meta"
+                  nil
+                  (:meta (organ/parse-org "Text\n#+TITLE: Late")))
+
+         ;; --- #+KEY: lines outside the preamble become :keyword nodes ---
+         (let [ast (organ/parse-org "Text\n#+TITLE: Late\n#+STARTUP: overview\n\nAfter\n* H\n#+PROPERTY: foo bar\nBody")]
+           (assert= "body keyword lines become :keyword nodes, in place"
+                    [[:paragraph :keyword :keyword :paragraph :section]
+                     {:type :keyword :key "title" :value "Late" :line 2}
+                     [{:type :keyword :key "property" :value "foo bar" :line 7}
+                      :paragraph]]
+                    [(mapv :type (:children ast))
+                     (-> ast :children second)
+                     (let [[k p] (-> ast :children last :children)] [k (:type p)])]))
+
+         (assert= "late #+TODO: is both a :keyword node and the keyword source"
+                  [:keyword :NEXT]
+                  (let [ast (organ/parse-org "* NEXT Task\n#+TODO: TODO NEXT | DONE")]
+                    [(-> ast :children first :children first :type)
+                     (-> ast :children first :todo)]))
+
+         (assert= "keyword line inside a list item"
+                  [:keyword :paragraph]
+                  (->> (organ/parse-org "- item\n  #+STARTUP: x\n  more")
+                       :children first :items first :children (mapv :type)))
+
+         (assert= "keyword line between `- term ::` and its definition is kept"
+                  ["definition" [:keyword]]
+                  (let [item (-> (organ/parse-org "- term ::\n  #+FOO: bar\n  definition")
+                                 :children first :items first)]
+                    [(organ/inline-text (:definition item))
+                     (mapv :type (:children item))]))
+
          ;; --- Test from test.org file if available ---
          (let [test-file "test/bzg/test.org"]
            (if (.exists (java.io.File. test-file))

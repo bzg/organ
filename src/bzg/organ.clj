@@ -292,7 +292,6 @@
 
 ;; Line Type Predicates
 (defn- headline? [line] (re-matches headline-pattern line))
-(defn- metadata-line? [line] (re-matches metadata-pattern line))
 (defn- comment-line? [line] (re-matches comment-pattern line))
 (defn- fixed-width-line? [line] (re-matches fixed-width-pattern line))
 (defn- table-line? [line] (re-matches table-pattern line))
@@ -1005,43 +1004,44 @@
     (when-let [[_ stars title] (re-matches headline-pattern line)]
       {:level (count stars) :title (str/trim title)})))
 
-;; Keyword set for metadata parsing (document preamble).
-(def ^:private preamble-metadata-keywords
-  #{"title" "author" "date" "subtitle" "email" "language" "description" "keywords" "options"})
+(defn- kvs->meta
+  "Build the :meta map from [key value] pairs: an array map in first-
+   occurrence order (array-map, unlike assoc, keeps that order past 8
+   entries); a repeated key holds a vector of its values."
+  [kvs]
+  (let [by-key (reduce (fn [m [k v]] (update m k (fnil conj []) v)) {} kvs)]
+    (apply array-map
+           (mapcat (fn [k]
+                     (let [vs (by-key k)]
+                       [k (if (= 1 (count vs)) (first vs) vs)]))
+                   (distinct (map first kvs))))))
 
-(defn- parse-metadata [indexed-lines]
+(defn- parse-metadata
+  "Parse the document preamble: every #+KEY: value line before the first
+   content line, whatever the keyword (#+TITLE:, #+TODO:, #+STARTUP:,
+   #+HTML_HEAD:, ...), so consumers can re-emit it. Returns [meta remaining],
+   meta mapping lower-cased keywords to values in file order (see kvs->meta).
+   Blank lines are skipped. Content directives (#+html:, #+latex:, #+BEGIN_*)
+   and affiliated keywords (#+caption:, #+name:, #+attr_*: — they belong to
+   the next element) end the preamble, as does any other line."
+  [indexed-lines]
   (loop [[{:keys [line] :as l} & more :as remaining] indexed-lines
-         meta {} order [] raw []]
-    (if (nil? l)
-      [(assoc meta :_order order :_raw raw) remaining]
+         kvs []]
+    (cond
+      (nil? l)
+      [(kvs->meta kvs) remaining]
+
+      (str/blank? line)
+      (recur more kvs)
+
+      (or (html-line? line) (latex-line? line) (block-begin? line)
+          (affiliated-keyword? line))
+      [(kvs->meta kvs) remaining]
+
+      :else
       (if-let [[_ key value] (re-matches metadata-pattern line)]
-        (let [kw       (keyword (str/lower-case key))
-              kw-str   (str/lower-case key)]
-          (cond
-            ;; Known preamble metadata: collect it
-            (contains? preamble-metadata-keywords kw-str)
-            (let [existing (get meta kw)
-                  v        (str/trim value)
-                  new-val  (cond
-                             (nil? existing) v
-                             (vector? existing) (conj existing v)
-                             :else [existing v])]
-              (recur more
-                     (assoc meta kw new-val)
-                     (if (some #{kw} order) order (conj order kw))
-                     (conj raw line)))
-            ;; Content directives (#+html:, #+latex:, #+BEGIN_*) and affiliated
-            ;; keywords (#+caption:, #+name:, #+attr_*: — they belong to the
-            ;; next element): stop metadata parsing
-            (or (html-line? line) (latex-line? line) (block-begin? line)
-                (affiliated-keyword? line))
-            [(assoc meta :_order order :_raw raw) remaining]
-            ;; Other unknown keywords: skip
-            :else
-            (recur more meta order raw)))
-        (if (str/blank? line)
-          (recur more meta order raw)
-          [(assoc meta :_order order :_raw raw) remaining])))))
+        (recur more (conj kvs [(keyword (str/lower-case key)) (str/trim value)]))
+        [(kvs->meta kvs) remaining]))))
 
 (defn- parse-property-drawer
   "Parse a :PROPERTIES: drawer at the head of indexed-lines.
@@ -1225,15 +1225,16 @@
                   (if (and desc-item
                            (str/blank? (:definition desc-item))
                            (seq body-lines))
-                    (let [first-content (->> body-lines
-                                             (drop-while #(or (str/blank? (:line %))
-                                                              (ignored-keyword-line? (:line %))))
-                                             first)]
+                    ;; `- term ::` with the definition on the next line: the
+                    ;; first content line is the definition, every other line
+                    ;; (#+KEY: lines included) stays in the body.
+                    (let [skip?         #(or (str/blank? (:line %))
+                                             (ignored-keyword-line? (:line %)))
+                          first-content (first (drop-while skip? body-lines))]
                       (if (and first-content
                                (not (list-item? (:line first-content))))
                         [(str/trim (:line first-content))
-                         (rest (drop-while #(or (str/blank? (:line %))
-                                                (ignored-keyword-line? (:line %))) body-lines))]
+                         (vec (remove #(identical? % first-content) body-lines))]
                         ["" body-lines]))
                     [(or (:definition desc-item) "") body-lines])
                   [children _] (if (seq body-for-parsing)
@@ -1456,7 +1457,7 @@
       [(rest remaining) nodes]))
 
 (defn- parse-content [indexed-lines]
-  (loop [[{:keys [line ltype]} & more :as remaining] indexed-lines
+  (loop [[{:keys [line ltype num]} & more :as remaining] indexed-lines
          nodes []
          pending-affiliated nil
          trailing-blanks 0]
@@ -1494,12 +1495,17 @@
                 [paragraph rest-lines] (parse-paragraph-forced remaining)]
             (recur rest-lines (conj nodes (attach-affiliated paragraph pending-affiliated)) nil 0)))
 
+        ;; A #+KEY: value line outside the preamble (#+TODO:, #+STARTUP:,
+        ;; #+PROPERTY:, a late #+TITLE:, ...) becomes a :keyword node so it
+        ;; can be re-emitted; it has no rendering effect of its own.
         :metadata
-        (if (ignored-keyword-line? line)
-          (recur more nodes pending-affiliated 0)
-          (if-let [[paragraph rest-lines] (parse-paragraph remaining)]
-            (recur rest-lines (conj nodes (attach-affiliated paragraph pending-affiliated)) nil 0)
-            (recur more nodes nil 0)))
+        (let [[_ key value] (re-matches metadata-pattern line)]
+          (recur more
+                 (conj nodes (make-node :keyword
+                                        :key (str/lower-case key)
+                                        :value (str/trim value)
+                                        :line num))
+                 pending-affiliated 0))
 
         (:comment :fixed-width :html-line :latex-line :footnote-def)
         (let [parser (case ltype
@@ -1623,9 +1629,10 @@
                            (unwrap-text-indexed org-content)
                            (index-lines (str/split-lines org-content)))
                indexed-lines (mapv enrich-line raw-lines)
-               [meta-raw rest-after-meta] (parse-metadata indexed-lines)
-               meta (dissoc meta-raw :_order :_raw)
-               title-raw (get meta :title "Untitled Document")
+               [meta rest-after-meta] (parse-metadata indexed-lines)
+               ;; Repeated #+TITLE: lines are joined with a space, as Org does
+               title-raw (let [t (get meta :title "Untitled Document")]
+                           (if (vector? t) (str/join " " t) t))
                [top-level-content rest-after-content content-trailing-blanks] (parse-content rest-after-meta)
                [sections _ _] (parse-sections rest-after-content [] nil content-trailing-blanks)
                errors @*parse-errors*

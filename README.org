@@ -19,6 +19,18 @@ A Clojure library to parse [[https://orgmode.org][Org mode]] text into an AST (E
 Text fields in the AST preserve raw Org markup. Rendering is left to
 consumers (see [[https://github.com/bzg/hop][hop]]).
 
+The document preamble (every =#+KEY: value= line before the first
+content line) is exposed as =:meta=: an array map in file order, keyed
+by lower-cased keywords (=#+HTML_HEAD:= becomes =:html_head=), where a
+repeated keyword holds a vector of values. Every keyword is kept,
+=#+TODO:= or =#+STARTUP:= included, so a consumer can re-emit the
+preamble verbatim. Lines such as =#+caption:= or =#+html:= belong to
+the body and end the preamble. A =#+KEY: value= line found later in the
+body (a =#+TODO:= or =#+PROPERTY:= under a heading) becomes a
+={:type :keyword :key "todo" :value "..."}= node in place, so it can be
+re-emitted too; =#+TODO:= directives drive the headline keywords
+wherever they sit.
+
 TODO keywords: headlines are matched against =TODO= and =DONE= by
 default. =#+TODO:=, =#+SEQ_TODO:= and =#+TYP_TODO:= directives found
 anywhere in the file replace this default set for the whole document
@@ -67,7 +79,7 @@ with a function of the link node, to decide link by link:
 As a Clojure CLI dependency:
 
 #+begin_src clojure
-org.clojars.bzg/organ {:mvn/version "3.3.0"}
+org.clojars.bzg/organ {:mvn/version "3.4.0"}
 #+end_src
 
 Works with both Clojure and [[https://babashka.org][Babashka]] (no external deps).
@@ -110,8 +122,8 @@ You can also [[mailto:bzg@bzg.fr][send me an email]] and support my work on [[ht
 
 This project uses [[https://intver.org][Intentional Versioning]], here are the three audiences:
 
-- =Users= : Maintainers who rely on organ for their code
-- =Integrators= : N/A
+- =Users= : people using software built on organ (e.g. [[https://github.com/bzg/hop][hop]]); organ itself has no end-user surface
+- =Integrators= : API consumers, i.e. maintainers who rely on organ for their code (the AST is the API)
 - =Maintainers= : maintainers of the codebase
 
 * Support the Clojure(script) ecosystem
