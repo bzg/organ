@@ -350,6 +350,11 @@
                     "Definition"
                     (organ/inline-text (-> ast :children first :items first :definition))))
 
+         (assert= "description flag is a boolean"
+                  [true false]
+                  (mapv :description
+                        (:children (organ/parse-org "- Term :: Def\n+ Plain"))))
+
          ;; --- Ordered list detection ---
          (let [ast (organ/parse-org "1. First\n2. Second")]
            (assert= "ordered list"

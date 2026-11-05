@@ -1296,7 +1296,7 @@
       (let [initial-indent     (count indent)
             [items rest-lines] (parse-list-items indexed-lines initial-indent marker)
             ordered            (ordered-marker? marker)
-            is-description     (some :term items)]
+            is-description     (boolean (some :term items))]
         [(make-node :list :items items :ordered ordered :description is-description :line num) rest-lines])
       [nil indexed-lines])))
 
