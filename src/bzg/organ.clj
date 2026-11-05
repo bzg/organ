@@ -27,12 +27,22 @@
 (defn remove-empty-vals
   "Remove entries with empty values from a map."
   [m]
-  (into {} (remove (comp empty-value? val) m)))
+  (persistent!
+   (reduce-kv (fn [acc k v] (if (empty-value? v) acc (assoc! acc k v)))
+              (transient {}) m)))
 
 (defn- make-node
   "Create an AST node, filtering out empty values."
   [type & {:as fields}]
   (assoc (remove-empty-vals fields) :type type))
+
+(defn- split-lines
+  "Same result as str/split-lines, faster: without \\r, String.split takes
+   its single-character fast path and skips the regex engine."
+  [^String s]
+  (if (str/includes? s "\r")
+    (str/split-lines s)
+    (vec (.split s "\n"))))
 
 (defn non-blank?
   "True if s is a non-nil, non-blank string."
@@ -91,6 +101,19 @@
 (def ^:private todo-directive-pattern
   #"(?im)^[ \t]*#\+(?:TODO|SEQ_TODO|TYP_TODO):[ \t]*(.*)$")
 
+(defn- directive-candidate-lines
+  "The lines of s holding \"#+\", found with indexOf: scanning the whole
+   text with todo-directive-pattern is much slower. Matches never span a
+   newline, so applying the pattern to these lines finds the same ones."
+  [^String s]
+  (loop [from 0 lines []]
+    (let [i (.indexOf s "#+" (int from))]
+      (if (neg? i)
+        lines
+        (let [start (inc (.lastIndexOf s "\n" (int i)))
+              end   (let [e (.indexOf s "\n" (int i))] (if (neg? e) (.length s) e))]
+          (recur (inc end) (conj lines (subs s start end))))))))
+
 (defn- directive-words
   "Split a directive right-hand side into keywords, dropping fast-access
    selectors such as (t) or (w@/!) and stray | separators."
@@ -128,7 +151,8 @@
    empty directives). Multiple directives accumulate, mirroring Emacs Org
    sequences."
   [org-content]
-  (let [seqs (map second (re-seq todo-directive-pattern (or org-content "")))
+  (let [seqs (map second (mapcat #(re-seq todo-directive-pattern %)
+                                 (directive-candidate-lines (or org-content ""))))
         m    (merge-todo-sequences (map todo-sequence seqs))]
     (when (or (seq (:todo m)) (seq (:done m))) m)))
 
@@ -294,8 +318,6 @@
 
 ;; Line Type Predicates
 (defn- headline? [line] (re-matches headline-pattern line))
-(defn- comment-line? [line] (re-matches comment-pattern line))
-(defn- fixed-width-line? [line] (re-matches fixed-width-pattern line))
 (defn- block-begin? [line] (re-matches block-begin-pattern line))
 (defn- planning-line? [line] (re-matches planning-line-pattern line))
 (defn- html-line? [line] (re-matches html-line-pattern line))
@@ -645,19 +667,16 @@
 (declare ^:private do-parse-inline)
 
 (defn- re-find-at
-  "Find regex match starting at position i in text, without creating a substring.
+  "Match pattern at position i in text, without creating a substring.
    Returns same format as re-find: the match string if no groups, or a vector
-   [full group1 group2 ...] if there are groups. Returns nil if no match."
+   [full group1 group2 ...] if there are groups. Returns nil if no match.
+   The patterns all start with ^, which only matches at i: lookingAt tries
+   that position alone, where find would retry up to the end of the text."
   [^java.util.regex.Pattern pattern ^String text ^long i]
   (let [m (doto (.matcher pattern text) (.region i (.length text)))]
-    (when (.find m)
-      (let [gc (.groupCount m)]
-        (if (zero? gc)
-          (.group m)
-          (let [result (object-array (inc gc))]
-            (dotimes [j (inc gc)]
-              (aset result j (.group m (int j))))
-            (vec result)))))))
+    (when (.lookingAt m)
+      ;; re-groups is compiled into bb, unlike a loop over the groups
+      (re-groups m))))
 
 (defn- try-parse-link [text i]
   (or (when-let [[full url desc] (re-find-at #"^\[\[([^\]]*)\]\[((?:[^\]]|\](?!\]))*)\]\]" text i)]
@@ -744,7 +763,7 @@
       (try-parse-link text i)
 
       ;; Footnote: [fn:
-      (and (= c \[) (<= (+ i 4) len) (= (subs text i (+ i 4)) "[fn:"))
+      (and (= c \[) (.startsWith text "[fn:" i))
       (try-parse-footnote text i)
 
       ;; Active timestamp: <YYYY-
@@ -804,7 +823,11 @@
   [text]
   (if (or (nil? text) (str/blank? text))
     []
-    (do-parse-inline (str/trim text))))
+    (let [text (str/trim text)]
+      ;; No special character, hence no node and no entity (\\name)
+      (if (re-find inline-special-pattern text)
+        (do-parse-inline text)
+        [{:type :text :value text}]))))
 
 (defn- do-inline-text [nodes bare-link]
   (when (seq nodes)
@@ -860,9 +883,16 @@
 
 (defn- unwrap-text-indexed
   "Unwrap text while preserving original line numbers.
-   Returns a vector of {:line string :num original-line-number} maps."
+   Returns a vector of {:line string :num original-line-number} maps.
+   A line being joined is held in a StringBuilder, which the tests below
+   read as a CharSequence: building it with str at each step copied the
+   whole joined line, quadratic in the length of a paragraph."
   [input]
-  (let [indexed (index-lines (str/split-lines input))]
+  (let [indexed (index-lines (split-lines input))
+        done    (fn [current]
+                  (if (instance? StringBuilder (:line current))
+                    {:line (str (:line current)) :num (:num current)}
+                    current))]
     (loop [result []
            remaining indexed
            end-pattern nil]               ; set inside a block or environment
@@ -879,15 +909,33 @@
                            (end-pattern-for btype)
                            (when-let [[_ env] (re-matches latex-env-begin-pattern line)]
                              (latex-env-end-pattern-for env)))]
-              (recur (conj result current) rest-lines end)
+              (recur (conj result (done current)) rest-lines end)
               (if (or (nil? next-line) (hard-break? line next-line))
-                (recur (conj result current) rest-lines nil)
-                (let [trimmed-next    (str/trim next-line)
-                      normalized-next (if (list-item? line)
+                (recur (conj result (done current)) rest-lines nil)
+                (let [;; Is the line joined so far a list item? (.matches
+                      ;; tests it without copying the groups.) Once it is,
+                      ;; it stays one while what gets appended has no line
+                      ;; terminator, which . (in the pattern's (.*)$) rejects:
+                      ;; testing the appended text alone keeps this linear.
+                      li?             (if-some [li? (:li? current)]
+                                        li?
+                                        (.matches (re-matcher *list-item-pattern* line)))
+                      trimmed-next    (str/trim next-line)
+                      normalized-next (if li?
                                         (str/replace trimmed-next #"\s+" " ")
                                         trimmed-next)
-                      new-current     {:line (str line " " normalized-next) :num num}]
-                  (recur result (cons new-current (rest rest-lines)) nil))))))))))
+                      ^StringBuilder sb (if (instance? StringBuilder line)
+                                          line
+                                          (StringBuilder. ^String line))]
+                  (.append sb " ")
+                  (.append sb ^String normalized-next)
+                  (recur result
+                         (cons {:line sb :num num
+                                :li? (if li?
+                                       (.matches (re-matcher #".*" normalized-next))
+                                       (.matches (re-matcher *list-item-pattern* sb)))}
+                               (rest rest-lines))
+                         nil))))))))))
 
 
 ;; Parsing Helpers
@@ -1078,8 +1126,9 @@
 (defn- parse-description-item
   "Check if content matches a description list item (term :: definition).
    Returns {:term term :definition definition} or nil."
-  [content]
-  (when-let [[_ term definition] (re-matches description-item-pattern content)]
+  [^String content]
+  (when-let [[_ term definition] (and (str/includes? content "::")
+                                      (re-matches description-item-pattern content))]
     {:term (str/trim term) :definition (if definition (str/trim definition) "")}))
 
 ;; Forward declaration - parse-content is defined later but needed by parse-list-items
@@ -1326,11 +1375,14 @@
             (recur more (conj content line)))))
       [nil indexed-lines])))
 
-(defn- parse-consecutive-lines [indexed-lines pred extract-fn node-type]
+(defn- parse-consecutive-lines
+  "Join the consecutive lines classified as node-type (their :ltype) into
+   one node, each line passed through extract-fn."
+  [indexed-lines extract-fn node-type]
   (let [start-line-num (:num (first indexed-lines))]
-    (loop [[{:keys [line]} & more :as remaining] indexed-lines
+    (loop [[{:keys [line ltype]} & more :as remaining] indexed-lines
            content []]
-      (if (or (empty? remaining) (not (pred line)))
+      (if (or (empty? remaining) (not= ltype node-type))
         (when (seq content)
           [(make-node node-type :content (str/join "\n" content)
                       :line start-line-num) remaining])
@@ -1338,22 +1390,23 @@
 
 (defn- parse-comment [indexed-lines]
   (parse-consecutive-lines
-   indexed-lines comment-line?
+   indexed-lines
    #(str/replace % #"^\s*#\s?" "") :comment))
 
 (defn- parse-fixed-width [indexed-lines]
   (parse-consecutive-lines
-   indexed-lines fixed-width-line?
-   #(second (re-matches fixed-width-pattern %)) :fixed-width))
+   indexed-lines
+   ;; A :fixed-width line is whitespace, ": ", then the content
+   #(subs % (+ 2 (str/index-of % ":"))) :fixed-width))
 
 (defn- parse-html-lines [indexed-lines]
   (parse-consecutive-lines
-   indexed-lines html-line?
+   indexed-lines
    #(second (re-matches html-line-pattern %)) :html-line))
 
 (defn- parse-latex-lines [indexed-lines]
   (parse-consecutive-lines
-   indexed-lines latex-line?
+   indexed-lines
    #(second (re-matches latex-line-pattern %)) :latex-line))
 
 (defn- parse-latex-environment
@@ -1529,6 +1582,15 @@
       (= new-level current-level) (-> path-stack butlast vec (conj title))
       :else (-> (take (dec new-level) path-stack) vec (conj title)))))
 
+(defn- closes-section?
+  "True when line is a headline at parent-level or above, which ends the
+   section being parsed. Checked from the leading stars alone, so that the
+   parent, which parses that headline, is the only one to run the full
+   headline regex on it."
+  [line parent-level]
+  (when-let [stars (and parent-level (re-find #"^\*+" line))]
+    (<= (count stars) parent-level)))
+
 (defn- parse-sections
   ([indexed-lines current-path]
    (parse-sections indexed-lines current-path nil 0))
@@ -1538,7 +1600,8 @@
           blanks-before initial-blanks-before]
      (if (empty? remaining)
        [sections remaining blanks-before]
-       (if-let [headline-data (parse-headline line)]
+       (if-let [headline-data (when-not (closes-section? line parent-level)
+                                (parse-headline line))]
          (let [{:keys [level title todo priority tags]} headline-data]
            (if (and parent-level (<= level parent-level))
              ;; Return to parent level - pass back the blanks-before count
@@ -1615,7 +1678,7 @@
                                        numeric-list-item-pattern)]
          (let [raw-lines (if unwrap?
                            (unwrap-text-indexed org-content)
-                           (index-lines (str/split-lines org-content)))
+                           (index-lines (split-lines org-content)))
                indexed-lines (mapv enrich-line raw-lines)
                [meta rest-after-meta] (parse-metadata indexed-lines)
                ;; Repeated #+TITLE: lines are joined with a space, as Org does
