@@ -526,12 +526,12 @@
                outer (-> ast :children first :items first)
                sublist (-> outer :children first)
                last-inner (-> sublist :items last)]
-           (assert= "tail paragraph not absorbed by last inner item"
-                    nil
-                    (:children last-inner))
-           (assert= "tail paragraph is outer item's child"
-                    :paragraph
-                    (-> outer :children second :type)))
+           [(assert= "tail paragraph not absorbed by last inner item"
+                     nil
+                     (:children last-inner))
+            (assert= "tail paragraph is outer item's child"
+                     :paragraph
+                     (-> outer :children second :type))])
 
          ;; --- Src block args ---
          (let [ast (organ/parse-org "#+BEGIN_SRC python :results output\nprint(1)\n#+END_SRC")]
@@ -733,20 +733,20 @@
 
          ;; --- Link with description ---
          (let [link (second (organ/parse-inline "See [[https://example.com][Example]]"))]
-           (assert= "link with desc type" :link (:type link))
-           (assert= "link with desc url" "https://example.com" (:url link))
-           (assert= "link with desc link-type" :https (:link-type link))
-           (assert= "link with desc children"
-                    "Example"
-                    (organ/inline-text (:children link))))
+           [(assert= "link with desc type" :link (:type link))
+            (assert= "link with desc url" "https://example.com" (:url link))
+            (assert= "link with desc link-type" :https (:link-type link))
+            (assert= "link with desc children"
+                     "Example"
+                     (organ/inline-text (:children link)))])
 
          ;; --- Link without description ---
          (let [link (first (organ/parse-inline "[[https://example.com]]"))]
-           (assert= "link without desc type" :link (:type link))
-           (assert= "link without desc url" "https://example.com" (:url link))
-           (assert= "link without desc no children"
-                    nil
-                    (seq (:children link))))
+           [(assert= "link without desc type" :link (:type link))
+            (assert= "link without desc url" "https://example.com" (:url link))
+            (assert= "link without desc no children"
+                     nil
+                     (seq (:children link)))])
 
          ;; --- Link type classification ---
          (assert= "link type file"
@@ -786,17 +786,17 @@
 
          ;; --- Footnote inline ---
          (let [fn-node (second (organ/parse-inline "text[fn:x:inline def] more"))]
-           (assert= "inline footnote type" :footnote-inline (:type fn-node))
-           (assert= "inline footnote label" "x" (:label fn-node))
-           (assert= "inline footnote content"
-                    "inline def"
-                    (organ/inline-text (:children fn-node))))
+           [(assert= "inline footnote type" :footnote-inline (:type fn-node))
+            (assert= "inline footnote label" "x" (:label fn-node))
+            (assert= "inline footnote content"
+                     "inline def"
+                     (organ/inline-text (:children fn-node)))])
 
          ;; --- Active timestamp ---
          (let [ts (second (organ/parse-inline "Due <2025-03-27 Thu>."))]
-           (assert= "active timestamp type" :timestamp (:type ts))
-           (assert= "active timestamp active" true (:active ts))
-           (assert= "active timestamp value" "2025-03-27" (:value ts)))
+           [(assert= "active timestamp type" :timestamp (:type ts))
+            (assert= "active timestamp active" true (:active ts))
+            (assert= "active timestamp value" "2025-03-27" (:value ts))])
 
          ;; --- Active timestamp with time ---
          (let [ts (first (organ/parse-inline "<2025-03-27 Thu 10:30>"))]
@@ -812,16 +812,16 @@
 
          ;; --- Inactive timestamp ---
          (let [ts (first (organ/parse-inline "[2025-03-27 Thu]"))]
-           (assert= "inactive timestamp type" :timestamp (:type ts))
-           (assert= "inactive timestamp active" false (:active ts))
-           (assert= "inactive timestamp value" "2025-03-27" (:value ts)))
+           [(assert= "inactive timestamp type" :timestamp (:type ts))
+            (assert= "inactive timestamp active" false (:active ts))
+            (assert= "inactive timestamp value" "2025-03-27" (:value ts))])
 
          ;; --- Timestamp range exposes structured :start/:end ---
          (let [ts (first (organ/parse-inline "<2025-03-27 Thu 09:00-12:00>"))]
-           (assert= "range timestamp :start" "2025-03-27T09:00" (:start ts))
-           (assert= "range timestamp :end" "2025-03-27T12:00" (:end ts))
-           (assert= "range timestamp value preserved"
-                    "2025-03-27T09:00/2025-03-27T12:00" (:value ts)))
+           [(assert= "range timestamp :start" "2025-03-27T09:00" (:start ts))
+            (assert= "range timestamp :end" "2025-03-27T12:00" (:end ts))
+            (assert= "range timestamp value preserved"
+                     "2025-03-27T09:00/2025-03-27T12:00" (:value ts))])
          (let [ts (first (organ/parse-inline "<2025-03-27 Thu 10:30>"))]
            (assert= "non-range timestamp has no :end" nil (:end ts)))
 
@@ -839,20 +839,20 @@
          (let [ast (organ/parse-org
                     "* Meeting\nSCHEDULED: <2025-03-15 Sat 10:00-11:00 +1w>\nNotes <2025-03-20 Thu>")
                ts  (organ/active-timestamps ast)]
-           (assert= "active-timestamps count" 2 (count ts))
-           (assert= "active-timestamps origins" #{:scheduled :inline}
-                    (set (map :origin ts)))
-           (let [sched (first (filter #(= :scheduled (:origin %)) ts))]
-             (assert= "scheduled :start" "2025-03-15T10:00" (:start sched))
-             (assert= "scheduled :end" "2025-03-15T11:00" (:end sched))
-             (assert= "scheduled repeater parsed" {:n 1 :unit :week :kind :cumulate}
-                      (:repeater sched))
-             (assert= "scheduled :path" ["Meeting"] (:path sched))
-             (assert= "scheduled not all-day" false (:all-day sched)))
-           (let [inl (first (filter #(= :inline (:origin %)) ts))]
-             (assert= "inline all-day" true (:all-day inl))
-             (assert= "inline value" "2025-03-20" (:value inl))
-             (assert= "inline :path" ["Meeting"] (:path inl))))
+           [(assert= "active-timestamps count" 2 (count ts))
+            (assert= "active-timestamps origins" #{:scheduled :inline}
+                     (set (map :origin ts)))
+            (let [sched (first (filter #(= :scheduled (:origin %)) ts))]
+              [(assert= "scheduled :start" "2025-03-15T10:00" (:start sched))
+               (assert= "scheduled :end" "2025-03-15T11:00" (:end sched))
+               (assert= "scheduled repeater parsed" {:n 1 :unit :week :kind :cumulate}
+                        (:repeater sched))
+               (assert= "scheduled :path" ["Meeting"] (:path sched))
+               (assert= "scheduled not all-day" false (:all-day sched))])
+            (let [inl (first (filter #(= :inline (:origin %)) ts))]
+              [(assert= "inline all-day" true (:all-day inl))
+               (assert= "inline value" "2025-03-20" (:value inl))
+               (assert= "inline :path" ["Meeting"] (:path inl))])])
 
          ;; --- active-timestamps: DEADLINE origin ---
          (let [ast (organ/parse-org "* Task\nDEADLINE: <2025-02-28 Fri>")
@@ -868,8 +868,8 @@
          ;; --- active-timestamps carries :title/:todo ---
          (let [ast (organ/parse-org "* TODO Ship it\nSCHEDULED: <2025-03-15 Sat>")
                e   (first (organ/active-timestamps ast))]
-           (assert= "entry :title" "Ship it" (:title e))
-           (assert= "entry :todo" :TODO (:todo e)))
+           [(assert= "entry :title" "Ship it" (:title e))
+            (assert= "entry :todo" :TODO (:todo e))])
 
          ;; --- Entity replacement in text nodes ---
          (assert= "entity in text node"
@@ -909,12 +909,12 @@
 
          ;; --- Multiple inline elements in sequence ---
          (let [nodes (organ/parse-inline "*bold* and ~code~ and [[https://x.com][link]]")]
-           (assert= "multi-element count"
-                    5
-                    (count nodes))
-           (assert= "multi-element types"
-                    [:bold :text :code :text :link]
-                    (mapv :type nodes)))
+           [(assert= "multi-element count"
+                     5
+                     (count nodes))
+            (assert= "multi-element types"
+                     [:bold :text :code :text :link]
+                     (mapv :type nodes))])
 
          ;; --- inline-text extraction ---
          (assert= "inline-text from emphasis"
