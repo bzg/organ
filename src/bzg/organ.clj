@@ -318,6 +318,12 @@
 
 ;; Line Type Predicates
 (defn- headline? [line] (re-matches headline-pattern line))
+(defn- section-end?
+  "True for a headline, which ends the current section: a block or LaTeX
+   environment still open there is unterminated, as in Org. The starts-with?
+   test spares the regex on the many lines that cannot be headlines."
+  [^String line]
+  (and (str/starts-with? line "*") (headline? line)))
 (defn- block-begin? [line] (re-matches block-begin-pattern line))
 (defn- planning-line? [line] (re-matches planning-line-pattern line))
 (defn- html-line? [line] (re-matches html-line-pattern line))
@@ -337,6 +343,17 @@
   "Memoized constructor for block end patterns."
   (memoize (fn [btype] (re-pattern (str "(?i)^\\s*#\\+END_" btype "\\s*$")))))
 (defn- index-lines [lines] (map-indexed (fn [i line] {:line line :num (inc i)}) lines))
+
+(defn- block-end-pattern
+  "The pattern of the line that closes the block (#+BEGIN_X) or LaTeX
+   environment (\\begin{env}) opened by line, or nil when line opens
+   neither. Lines up to that end are opaque: kept as they are, never
+   unwrapped or split."
+  [line]
+  (if-let [[_ btype] (re-matches generic-block-begin-pattern line)]
+    (end-pattern-for btype)
+    (when-let [[_ env] (re-matches latex-env-begin-pattern line)]
+      (latex-env-end-pattern-for env))))
 
 (defn- classify-line
   "Classify a line into a type keyword for fast dispatch.
@@ -901,14 +918,12 @@
         (let [{:keys [line num] :as current} (first remaining)
               rest-lines (rest remaining)
               next-line (:line (first rest-lines))]
-          (if end-pattern
-            ;; Inside a block, keep lines as they are up to the end line
+          (if (and end-pattern (not (section-end? line)))
+            ;; Inside a block, keep lines as they are up to the end line (a
+            ;; headline ends an unterminated block, then unwrapping resumes)
             (recur (conj result current) rest-lines
                    (when-not (re-matches end-pattern line) end-pattern))
-            (if-let [end (if-let [[_ btype] (re-matches generic-block-begin-pattern line)]
-                           (end-pattern-for btype)
-                           (when-let [[_ env] (re-matches latex-env-begin-pattern line)]
-                             (latex-env-end-pattern-for env)))]
+            (if-let [end (block-end-pattern line)]
               (recur (conj result (done current)) rest-lines end)
               (if (or (nil? next-line) (hard-break? line next-line))
                 (recur (conj result (done current)) rest-lines nil)
@@ -1153,26 +1168,31 @@
    a headline, or a non-indented line (outside of blocks). Returns [indexed-lines remaining].
    Continuation lines must be indented strictly more than min-indent (the list item's
    marker indent) — matching Org's rule that a line belongs to a list item only if it
-   is indented past the item's bullet."
+   is indented past the item's bullet. The lines must carry their :ltype (see
+   enrich-line), from which every decision here is taken."
   [indexed-lines min-indent]
   (loop [[{:keys [line ltype] :as current} & more :as remaining] indexed-lines
          collected []
-         end-pattern nil]                 ; set inside a block or drawer
+         end-pattern nil]                 ; set inside a block, environment or drawer
     (cond
       (empty? remaining)
       [collected remaining]
 
-      ;; Inside a block or drawer, take every line up to its end line
+      ;; A headline ends the item, even inside an unterminated block
+      (= ltype :headline)
+      [collected remaining]
+
+      ;; Inside a block, environment or drawer, take every line up to its
+      ;; end line, whatever its indentation
       end-pattern
       (recur more (conj collected current)
              (when-not (re-matches end-pattern line) end-pattern))
 
-      (= ltype :headline)
-      [collected remaining]
-
-      (= ltype :block-begin)
-      (recur more (conj collected current)
-             (end-pattern-for (second (re-matches generic-block-begin-pattern line))))
+      ;; A block or LaTeX environment opened past the bullet belongs to the
+      ;; item; opened at or left of it, it ends the list (the :else below)
+      (and (#{:block-begin :latex-env-begin} ltype)
+           (> (leading-indent line) min-indent))
+      (recur more (conj collected current) (block-end-pattern line))
 
       ;; Drawer opened on a continuation line: the item extends to the
       ;; drawer's :END: even when the drawer contents are not indented
@@ -1260,7 +1280,10 @@
                 :line num)
      rest-after-body]))
 
-(defn- parse-list-items [indexed-lines initial-indent initial-marker]
+(defn- parse-list-items
+  "Parse the items of the list starting at indexed-lines, whose lines must
+   carry their :ltype (see enrich-line). Returns [items remaining]."
+  [indexed-lines initial-indent initial-marker]
   (let [normalized-initial (normalize-marker initial-marker)
         ordered?           (= :ordered normalized-initial)
         ;; [indent marker content] of a line continuing this list, or nil.
@@ -1366,9 +1389,12 @@
         (loop [[{:keys [line]} & more :as remaining] (rest indexed-lines)
                content []]
           (cond
-            (empty? remaining)
+            ;; Unterminated: the block stops before the next headline, so
+            ;; that the following sections survive
+            (or (empty? remaining) (section-end? line))
             (do (add-parse-error! num (str "Unterminated " block-type " block"))
-                [(make-block-node content :warning (str "Unterminated " block-type " block")) []])
+                [(make-block-node content :warning (str "Unterminated " block-type " block"))
+                 remaining])
             (re-matches end-pattern line)
             [(make-block-node content) more]
             :else
@@ -1419,13 +1445,14 @@
         (loop [[{l :line} & more :as remaining] (rest indexed-lines)
                content [line]]
           (cond
-            (empty? remaining)
+            ;; Unterminated: stops before the next headline, like blocks
+            (or (empty? remaining) (section-end? l))
             (let [warning (str "Unterminated \\begin{" env "} environment")]
               (add-parse-error! num warning)
               [(make-node :latex-environment :name env
                           :content (str/join "\n" content)
                           :line num :warning warning :error-line num)
-               []])
+               remaining])
             (re-matches end-pattern l)
             [(make-node :latex-environment :name env
                         :content (str/join "\n" (conj content l))

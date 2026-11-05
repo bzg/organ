@@ -393,6 +393,47 @@
                                                   {:alphabetical-lists? true})))]
                        [(mapv :type (:children sec)) (-> sec :planning :scheduled)]))])
 
+         ;; --- Blocks and LaTeX environments in list items ---
+         (let [types #(mapv :type (:children (organ/parse-org %)))]
+           [(assert= "block at the bullet's column ends the list"
+                     [:list :quote-block]
+                     (types "- item\n#+begin_quote\nx\n#+end_quote"))
+            (assert= "same with a blank line before the block"
+                     [:list :quote-block]
+                     (types "- item\n\n#+begin_quote\nx\n#+end_quote"))
+            (assert= "block indented past the bullet stays in the item"
+                     [:list]
+                     (types "- item\n  #+begin_quote\n  x\n  #+end_quote"))])
+
+         (let [ast (organ/parse-org "- a\n  \\begin{align}\n  x\n\n\n  y\n  \\end{align}\n- b")]
+           [(assert= "two blank lines inside a LaTeX environment keep the item"
+                     [[:latex-environment] []]
+                     (mapv #(mapv :type (:children %)) (-> ast :children first :items)))
+            (assert= "LaTeX environment in an item is not flagged unterminated"
+                     nil
+                     (:parse-errors ast))])
+
+         ;; --- An unterminated block stops before the next headline ---
+         (let [section-titles #(mapv (comp organ/inline-text :title)
+                                     (:children (organ/parse-org %)))]
+           [(assert= "unterminated block keeps the next section"
+                     ["A" "B"]
+                     (section-titles "* A\n#+begin_src\nx\n* B\ny"))
+            (assert= "unterminated block content stops at the headline"
+                     "x"
+                     (-> (organ/parse-org "* A\n#+begin_src\nx\n* B\ny")
+                         :children first :children first :content))
+            (assert= "unterminated block in a list item keeps the next section"
+                     ["A" "B"]
+                     (section-titles "* A\n- item\n  #+begin_src\n* B\ntext"))
+            (assert= "unterminated LaTeX environment keeps the next section"
+                     ["A" "B"]
+                     (section-titles "* A\n\\begin{align}\nx\n* B\ny"))
+            (assert= "unwrapping resumes after an unterminated block"
+                     "Para a para b"
+                     (-> (organ/parse-org "#+begin_note\nstray\n* H\nPara a\npara b")
+                         :children second :children first :content organ/inline-text))])
+
          ;; --- Two blank lines end a list ---
          (let [list-sizes #(mapv (comp count :items) (:children (organ/parse-org %)))]
            [(assert= "one blank line keeps the list"
