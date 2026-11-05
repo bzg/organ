@@ -356,6 +356,30 @@
                     true
                     (-> ast :children first :ordered)))
 
+         ;; --- Ordered list counter-set cookie ---
+         (let [items (-> (organ/parse-org "1. a\n2. b\n5. [@5] e\n6. f")
+                         :children first :items)]
+           (assert= "counter-set on ordered item"
+                    [nil nil 5 nil]
+                    (mapv :counter items))
+           (assert= "counter-set stripped from content"
+                    "e"
+                    (organ/inline-text (:content (nth items 2)))))
+
+         (let [items (-> (organ/parse-org "1) [@start:3] x\n2) [@c] y\n3. [@4] t :: d")
+                         :children first :items)]
+           (assert= "counter-set start: prefix and letter counter"
+                    [3 3 4]
+                    (mapv :counter items))
+           (assert= "counter-set before description term"
+                    "t"
+                    (organ/inline-text (:term (nth items 2)))))
+
+         (let [item (-> (organ/parse-org "- [@3] z") :children first :items first)]
+           (assert= "counter-set ignored on unordered item"
+                    [nil "[@3] z"]
+                    [(:counter item) (organ/inline-text (:content item))]))
+
          ;; --- Unordered list detection ---
          (let [ast (organ/parse-org "- First\n- Second")]
            (assert= "unordered list"

@@ -1192,6 +1192,21 @@
         :else
         [collected remaining]))))
 
+(def ^:private counter-set-pattern
+  #"^\[@(?:start:)?(\d+|[A-Za-z])\]\s*(.*)$")
+
+(defn- split-counter
+  "Split an ordered item's leading counter-set cookie ([@5], [@start:5],
+   [@c]) from its content, returning [counter content]. A letter counter
+   counts from 1 for a/A, as in Org."
+  [content]
+  (if-let [[_ c rest] (re-matches counter-set-pattern content)]
+    [(if (Character/isDigit (.charAt ^String c 0))
+       (parse-long c)
+       (- (int (Character/toUpperCase (.charAt ^String c 0))) 64))
+     rest]
+    [nil content]))
+
 (defn- list-item-match
   "Parse a list item line, returning [indent marker content] or nil."
   [line]
@@ -1218,7 +1233,10 @@
                  (let [[indent marker _] li-match]
                    (and (= (count indent) initial-indent)
                         (= (normalize-marker marker) normalized-initial))))
-            (let [[_indent _marker content] li-match
+            (let [[_indent _marker raw-content] li-match
+                  [counter content] (if (= :ordered normalized-initial)
+                                      (split-counter raw-content)
+                                      [nil raw-content])
                   desc-item (parse-description-item content)
                   [body-lines rest-after-body] (collect-list-item-body more initial-indent)
                   [definition body-for-parsing]
@@ -1242,11 +1260,13 @@
                                  [[] []])
                   new-item (if desc-item
                              (make-node :list-item
+                                        :counter counter
                                         :term (parse-inline (:term desc-item))
                                         :definition (parse-inline definition)
                                         :children children
                                         :line num)
                              (make-node :list-item
+                                        :counter counter
                                         :content (parse-inline content)
                                         :children children
                                         :line num))]
