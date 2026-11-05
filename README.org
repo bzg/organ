@@ -48,6 +48,20 @@ The effective set is exposed on the document node as =:todo-keywords=
 (={:todo [...] :done [...]}=), and =parse-todo-keywords= extracts the
 directive-defined set from raw Org text.
 
+Ordered lists: as in Org, the number written in a bullet is ignored.
+An item starting with a counter-set cookie (=[@5]=, =[@start:5]= or =[@c]=)
+carries =:counter= (an integer, a letter counting from 1 for =a=), so a
+renderer can emit =<li value="5">=. Single-letter bullets (=a.=, =B)=) are
+plain text by default, as with Org's default
+=org-list-allow-alphabetical=. If you enable that variable in Emacs,
+pass the =:alphabetical-lists?= option:
+
+#+begin_src clojure
+(organ/parse-org "a. First\nb. Second" {:alphabetical-lists? true})
+;; the list node carries :ordered true and :alphabetical :lower
+;; (:upper for A. B.), e.g. for <ol type="a">
+#+end_src
+
 Filter and clean:
 
 #+begin_src clojure

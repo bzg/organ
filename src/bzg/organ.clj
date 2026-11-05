@@ -46,7 +46,14 @@
 (def ^:private drawer-start-pattern #"^\s*:([A-Za-z][\w_-]*?):\s*$")
 (def ^:private drawer-end-pattern #"(?i)^\s*:END:\s*$")
 (def ^:private property-pattern #"^\s*:([\w_-]+):\s*(.*)$")
-(def ^:private list-item-pattern #"^(\s*)(-|\+|\*|\d+[.)])\s+(.*)$")
+(def ^:private numeric-list-item-pattern
+  #"^(\s*)(-|\+|\*|\d+[.)])\s+(.*)$")
+(def ^:private alphabetical-list-item-pattern
+  #"^(\s*)(-|\+|\*|(?:\d+|[A-Za-z])[.)])\s+(.*)$")
+;; Rebound by parse-org when :alphabetical-lists? is set: single-letter
+;; bullets (a. b) A.) are only list items then, as with Org's
+;; org-list-allow-alphabetical.
+(def ^:private ^:dynamic *list-item-pattern* numeric-list-item-pattern)
 (def ^:private description-item-pattern #"^(.+?)\s+::(?:\s+(.*))?$")
 ;; Any line whose first non-blank character is | is a table line (the final
 ;; pipe is optional), as in Emacs org-element.
@@ -66,7 +73,6 @@
 (def ^:private link-without-desc-pattern #"\[\[((?:[^\]]|\](?!\]))+)\]\]")
 (def ^:private link-type-pattern #"^(file|id|mailto|http|https|ftp|news|shell|elisp|doi):(.*)$")
 (def ^:private affiliated-keyword-pattern #"(?i)^\s*#\+(attr_\w+|caption|name|header|results):\s*(.*)$")
-(def ^:private list-item-simple-pattern #"^\s*(?:[-+*]|\d+[.)])\s+.*$")
 
 ;; LaTeX fragment patterns (inline math).
 (def ^:private latex-paren-pattern    #"^\\\(([\s\S]+?)\\\)")
@@ -317,7 +323,7 @@
        (take-while #(not (headline? %)))
        (some #(re-matches drawer-end-pattern %))
        boolean))
-(defn- list-item? [line] (re-matches list-item-simple-pattern line))
+(defn- list-item? [line] (re-matches *list-item-pattern* line))
 (defn- affiliated-keyword? [line] (re-matches affiliated-keyword-pattern line))
 
 (def ^:private end-pattern-for
@@ -338,7 +344,7 @@
 
         (= fc \*)
         (if (re-matches headline-pattern line) :headline
-          (if (re-matches list-item-simple-pattern line) :list-item :text))
+          (if (re-matches *list-item-pattern* line) :list-item :text))
 
         (= fc \#)
         (cond
@@ -365,13 +371,21 @@
           :else :text)
 
         (or (= fc \-) (= fc \+) (Character/isDigit (char fc)))
-        (if (re-matches list-item-simple-pattern line) :list-item :text)
+        (if (re-matches *list-item-pattern* line) :list-item :text)
 
         (= fc \\)
         (if (re-matches latex-env-begin-pattern line) :latex-env-begin :text)
 
-        (or (= fc \C) (= fc \S) (= fc \D))
-        (if (re-matches planning-line-pattern line) :planning :text)
+        (and (or (= fc \C) (= fc \S) (= fc \D))
+             (re-matches planning-line-pattern line))
+        :planning
+
+        ;; Letter bullet (a. or B)): only a list item with :alphabetical-lists?
+        (and (Character/isLetter (char fc))
+             (> (count trimmed) 1)
+             (let [c2 (.charAt ^String trimmed 1)] (or (= c2 \.) (= c2 \))))
+             (re-matches *list-item-pattern* line))
+        :list-item
 
         :else :text))))
 
@@ -450,7 +464,10 @@
 
 (defn- hard-break? [current-line next-line]
   (or (some? (re-matches unwrap-break-current-pattern current-line))
-      (some? (re-matches unwrap-break-next-pattern next-line))))
+      (some? (re-matches unwrap-break-next-pattern next-line))
+      ;; Letter bullets, recognised only with :alphabetical-lists?
+      (and (identical? *list-item-pattern* alphabetical-list-item-pattern)
+           (some? (re-matches *list-item-pattern* next-line)))))
 
 ;; Org entities - maps \name to Unicode/ASCII equivalent
 (def ^:private org-entities
@@ -988,7 +1005,14 @@
   (if current-item (conj items current-item) items))
 
 (defn- ordered-marker? [marker]
-  (boolean (re-matches #"\d+[.)]" marker)))
+  (boolean (re-matches #"(?:\d+|[A-Za-z])[.)]" marker)))
+
+(defn- alphabetical-case
+  "For a letter bullet (a. or A)), :lower or :upper; nil otherwise."
+  [marker]
+  (let [c (.charAt ^String marker 0)]
+    (cond (Character/isLowerCase c) :lower
+          (Character/isUpperCase c) :upper)))
 
 ;; Parsing Functions
 (defn- parse-headline [line]
@@ -1134,7 +1158,7 @@
     (let [block-begin-match (when (and line (not in-block))
                               (re-matches generic-block-begin-pattern line))
           li-match (when (and line (not in-block))
-                     (re-matches list-item-pattern line))]
+                     (re-matches *list-item-pattern* line))]
       (cond
         (empty? remaining)
         [collected remaining]
@@ -1186,7 +1210,7 @@
           (if (or (nil? next-non-blank)
                   (blank-line? (first more))
                   (headline? next-line)
-                  (and (not (re-matches list-item-pattern next-line))
+                  (and (not (re-matches *list-item-pattern* next-line))
                        (<= (leading-indent next-line) min-indent)))
             [collected remaining]
             (recur more (conj collected (first remaining)) false nil nil)))
@@ -1217,7 +1241,7 @@
 (defn- list-item-match
   "Parse a list item line, returning [indent marker content] or nil."
   [line]
-  (when-let [[_ indent marker content] (re-matches list-item-pattern line)]
+  (when-let [[_ indent marker content] (re-matches *list-item-pattern* line)]
     [indent marker content]))
 
 (defn- parse-list-items [indexed-lines initial-indent initial-marker]
@@ -1300,12 +1324,15 @@
 
 (defn- process-list [indexed-lines]
   (let [{:keys [line num]} (first indexed-lines)]
-    (if-let [[_ indent marker _] (re-matches list-item-pattern line)]
+    (if-let [[_ indent marker _] (re-matches *list-item-pattern* line)]
       (let [initial-indent     (count indent)
             [items rest-lines] (parse-list-items indexed-lines initial-indent marker)
             ordered            (ordered-marker? marker)
             is-description     (boolean (some :term items))]
-        [(make-node :list :items items :ordered ordered :description is-description :line num) rest-lines])
+        [(make-node :list :items items :ordered ordered
+                    :alphabetical (alphabetical-case marker)
+                    :description is-description :line num)
+         rest-lines])
       [nil indexed-lines])))
 
 (defn- parse-table [indexed-lines]
@@ -1636,6 +1663,12 @@
 (defn parse-org
   "Parse Org text into an AST. Options:
    :unwrap?        join continuation lines (default true)
+   :alphabetical-lists?
+                   also recognise single-letter bullets (a. b) A.) as
+                   ordered list items, like Org's
+                   org-list-allow-alphabetical (default false). Such
+                   lists carry :alphabetical (:lower or :upper, from
+                   their first bullet).
    :todo-keywords  extra TODO keywords to recognise on headlines, as
                    {:todo [...] :done [...]} or a string in directive
                    syntax (\"TODO NEXT | DONE CANX\"). #+TODO:-style
@@ -1644,7 +1677,8 @@
                    whichever set is in effect. The effective set is
                    exposed as :todo-keywords on the document node."
   ([org-content] (parse-org org-content {}))
-  ([org-content {:keys [unwrap? todo-keywords] :or {unwrap? true}}]
+  ([org-content {:keys [unwrap? todo-keywords alphabetical-lists?]
+                 :or {unwrap? true}}]
    (if (nil? org-content)
      (parse-org "" {})
      (let [file-kws (parse-todo-keywords org-content)
@@ -1652,7 +1686,10 @@
            kws      (merge-todo-sequences
                      (remove nil? [(or file-kws default-todo-keywords) opt-kws]))]
        (binding [*parse-errors* (volatile! [])
-                 *headline-full-pattern* (headline-pattern-for kws)]
+                 *headline-full-pattern* (headline-pattern-for kws)
+                 *list-item-pattern* (if alphabetical-lists?
+                                       alphabetical-list-item-pattern
+                                       numeric-list-item-pattern)]
          (let [raw-lines (if unwrap?
                            (unwrap-text-indexed org-content)
                            (index-lines (str/split-lines org-content)))

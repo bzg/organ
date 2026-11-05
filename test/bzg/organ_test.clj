@@ -357,6 +357,42 @@
                   (mapv :description
                         (:children (organ/parse-org "- Term :: Def\n+ Plain"))))
 
+         ;; --- Alphabetical lists (opt-in, like org-list-allow-alphabetical) ---
+         (assert= "letter bullets are text by default"
+                  [:paragraph]
+                  (mapv :type (:children (organ/parse-org "a. x\nb. y"))))
+
+         (let [alpha #(:children (organ/parse-org % {:alphabetical-lists? true}))
+               [lst] (alpha "a. x\nb) [@d] y\n   c. sub")
+               item2 (second (:items lst))]
+           [(assert= "lower-case letter list"
+                     [:list true :lower 2]
+                     [(:type lst) (:ordered lst) (:alphabetical lst) (count (:items lst))])
+            (assert= "letter counter-set and content"
+                     [4 "y"]
+                     [(:counter item2) (organ/inline-text (:content item2))])
+            (assert= "nested letter list"
+                     :lower
+                     (-> item2 :children first :alphabetical))
+            (assert= "upper-case letter list"
+                     :upper
+                     (:alphabetical (first (alpha "A) x\nB) y"))))
+            (assert= "numeric list has no :alphabetical"
+                     [true nil]
+                     ((juxt :ordered :alphabetical) (first (alpha "1. x\n2. y"))))
+            (assert= "letter bullet ends a paragraph"
+                     [:paragraph :list]
+                     (mapv :type (alpha "Some text\nb. y")))
+            (assert= "only single-letter bullets"
+                     [:paragraph]
+                     (mapv :type (alpha "ab. x")))
+            (assert= "S/C/D bullets are list items, planning still parsed"
+                     [[:list] "2026-11-05"]
+                     (let [sec (first (:children (organ/parse-org
+                                                  "* H\nSCHEDULED: <2026-11-05 Thu>\nS. x"
+                                                  {:alphabetical-lists? true})))]
+                       [(mapv :type (:children sec)) (-> sec :planning :scheduled)]))])
+
          ;; --- Two blank lines end a list ---
          (let [list-sizes #(mapv (comp count :items) (:children (organ/parse-org %)))]
            [(assert= "one blank line keeps the list"
