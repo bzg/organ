@@ -16,50 +16,35 @@ A Clojure library to parse [[https://orgmode.org][Org mode]] text into an AST (E
 (organ/format-ast-as-edn (organ/parse-org (slurp "notes.org")))
 #+end_src
 
-Text fields in the AST preserve raw Org markup. Rendering is left to
-consumers (see [[https://github.com/bzg/hop][hop]]).
+Text fields keep raw Org markup; rendering is left to consumers (see
+[[https://github.com/bzg/hop][hop]]).
 
-The document preamble (every =#+KEY: value= line before the first
-content line) is exposed as =:meta=: an array map in file order, keyed
-by lower-cased keywords (=#+HTML_HEAD:= becomes =:html_head=), where a
-repeated keyword holds a vector of values. Every keyword is kept,
-=#+TODO:= or =#+STARTUP:= included, so a consumer can re-emit the
-preamble verbatim. Lines such as =#+caption:= or =#+html:= belong to
-the body and end the preamble. A =#+KEY: value= line found later in the
-body (a =#+TODO:= or =#+PROPERTY:= under a heading) becomes a
-={:type :keyword :key "todo" :value "..."}= node in place, so it can be
-re-emitted too; =#+TODO:= directives drive the headline keywords
-wherever they sit.
+The preamble (=#+KEY: value= lines before the first content line) is
+exposed as =:meta=, an array map in file order keyed by lower-cased
+keywords; a repeated keyword holds a vector. A =#+KEY: value= line later
+in the body becomes a ={:type :keyword :key "todo" :value "..."}= node.
+Both can be re-emitted verbatim.
 
-TODO keywords: headlines are matched against =TODO= and =DONE= by
-default. =#+TODO:=, =#+SEQ_TODO:= and =#+TYP_TODO:= directives found
-anywhere in the file replace this default set for the whole document
-(as in Emacs Org, including =|= separators and fast-access selectors
-like =TODO(t)=). Keywords coming from your Emacs configuration rather
-than from the file can be passed with the =:todo-keywords= option,
-which extends the effective set:
+TODO keywords default to =TODO= and =DONE=. =#+TODO:=, =#+SEQ_TODO:= and
+=#+TYP_TODO:= directives replace this set for the whole file, as in Org.
+Keywords from your Emacs configuration extend it with =:todo-keywords=:
 
 #+begin_src clojure
 (organ/parse-org org-string {:todo-keywords "NEXT STRT WAIT | CANX"})
 ;; or {:todo-keywords {:todo ["NEXT"] :done ["CANX"]}}
 #+end_src
 
-The effective set is exposed on the document node as =:todo-keywords=
-(={:todo [...] :done [...]}=), and =parse-todo-keywords= extracts the
-directive-defined set from raw Org text.
+The effective set is the document's =:todo-keywords=; =parse-todo-keywords=
+reads the directive set from raw Org text.
 
-Ordered lists: as in Org, the number written in a bullet is ignored.
-An item starting with a counter-set cookie (=[@5]=, =[@start:5]= or =[@c]=)
-carries =:counter= (an integer, a letter counting from 1 for =a=), so a
-renderer can emit =<li value="5">=. Single-letter bullets (=a.=, =B)=) are
-plain text by default, as with Org's default
-=org-list-allow-alphabetical=. If you enable that variable in Emacs,
-pass the =:alphabetical-lists?= option:
+Ordered lists ignore the number written in a bullet, as in Org. An item
+starting with =[@5]= or =[@start:5]= carries =:counter 5=, for
+=<li value="5">= (=[@c]= gives 3). Single-letter bullets (=a.=, =B)=) need the
+=:alphabetical-lists?= option, like Org's =org-list-allow-alphabetical=;
+such lists carry =:alphabetical= (=:lower= or =:upper=):
 
 #+begin_src clojure
 (organ/parse-org "a. First\nb. Second" {:alphabetical-lists? true})
-;; the list node carries :ordered true and :alphabetical :lower
-;; (:upper for A. B.), e.g. for <ol type="a">
 #+end_src
 
 Filter and clean:
@@ -70,21 +55,17 @@ Filter and clean:
     organ/clean-node)
 #+end_src
 
-Extract plain text from a vector of inline nodes:
+Extract plain text from inline nodes:
 
 #+begin_src clojure
 (organ/inline-text (organ/parse-inline "See [[https://x.com][Example]]"))
 ;; => "See Example"
 #+end_src
 
-A link written /without/ a description contributes its raw URL, which
-is noise when extracting prose (search indexes, feed descriptions, word
-counts).  The =:bare-link= option changes this, either with =:omit= or
-with a function of the link node, to decide link by link:
+A link without description contributes its URL. Use =:bare-link= to
+drop it (=:omit=) or decide link by link:
 
 #+begin_src clojure
-;; Drop image links, whose URL is invisible in rendered output, and
-;; keep plain links, whose URL is the visible text.
 (organ/inline-text nodes {:bare-link #(when-not (image-url? (:url %)) (:url %))})
 #+end_src
 
@@ -104,22 +85,9 @@ Works with both Clojure and [[https://babashka.org][Babashka]] (no external deps
 
 * Deploy
 
-Set your Clojars credentials in the environment:
+With =CLOJARS_USERNAME= and =CLOJARS_PASSWORD= set:
 
-: export CLOJARS_USERNAME=your-username
-: export CLOJARS_PASSWORD=your-deploy-token
-
-Build the jar and deploy:
-
-: clj -T:build deploy
-
-To install locally instead:
-
-: clj -T:build install
-
-To just build the jar without deploying:
-
-: clj -T:build jar
+: clj -T:build deploy   # or install (local), or jar (build only)
 
 The version is set in =build.clj=.
 
