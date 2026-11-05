@@ -66,11 +66,7 @@
 (def ^:private latex-line-pattern #"(?i)^\s*#\+latex:\s*(.*)$")
 (def ^:private block-begin-pattern #"(?i)^\s*#\+BEGIN.*$")
 (def ^:private fixed-width-pattern #"^\s*: (.*)$")
-(def ^:private footnote-ref-pattern #"\[fn:([\w-]+)\]")
-(def ^:private footnote-inline-pattern #"\[fn:([^\]:]*):([^\]]+)\]")
 (def ^:private footnote-def-pattern #"^\[fn:([^\]]+)\]\s*(.*)$")
-(def ^:private link-with-desc-pattern #"\[\[([^\]]+)\]\[((?:[^\]]|\](?!\]))+)\]\]")
-(def ^:private link-without-desc-pattern #"\[\[((?:[^\]]|\](?!\]))+)\]\]")
 (def ^:private link-type-pattern #"^(file|id|mailto|http|https|ftp|news|shell|elisp|doi):(.*)$")
 (def ^:private affiliated-keyword-pattern #"(?i)^\s*#\+(attr_\w+|caption|name|header|results):\s*(.*)$")
 
@@ -300,21 +296,10 @@
 (defn- headline? [line] (re-matches headline-pattern line))
 (defn- comment-line? [line] (re-matches comment-pattern line))
 (defn- fixed-width-line? [line] (re-matches fixed-width-pattern line))
-(defn- table-line? [line] (re-matches table-pattern line))
 (defn- block-begin? [line] (re-matches block-begin-pattern line))
-(defn- footnote-def? [line] (re-matches footnote-def-pattern line))
 (defn- planning-line? [line] (re-matches planning-line-pattern line))
 (defn- html-line? [line] (re-matches html-line-pattern line))
 (defn- latex-line? [line] (re-matches latex-line-pattern line))
-(defn- latex-env-begin? [line] (re-matches latex-env-begin-pattern line))
-(defn- property-line? [line]
-  (or (re-matches property-drawer-start-pattern line)
-      (re-matches property-drawer-end-pattern line)
-      (re-matches property-pattern line)))
-(defn- drawer-start? [line]
-  (and (re-matches drawer-start-pattern line)
-       (not (re-matches property-drawer-start-pattern line))
-       (not (re-matches drawer-end-pattern line))))
 (defn- drawer-terminated?
   "True if a :END: line occurs before the next headline or end of input."
   [indexed-lines]
@@ -746,6 +731,49 @@
    copied in a single step, which keeps the scan at host speed under SCI."
   #"[\[<*/_+~=$\\]")
 
+(declare ^:private do-parse-inline)
+
+(defn- parse-inline-at
+  "Parse the inline construct opened by the special character c at
+   position i of text. Returns [node end], or nil when c is plain text."
+  [^String text ^long i c]
+  (let [len (.length text)]
+    (cond
+      ;; Link: [[
+      (and (= c \[) (< (inc i) len) (= (.charAt text (inc i)) \[))
+      (try-parse-link text i)
+
+      ;; Footnote: [fn:
+      (and (= c \[) (<= (+ i 4) len) (= (subs text i (+ i 4)) "[fn:"))
+      (try-parse-footnote text i)
+
+      ;; Active timestamp: <YYYY-
+      (and (= c \<) (<= (+ i 6) len)
+           (Character/isDigit (.charAt text (inc i))))
+      (try-parse-timestamp text i true)
+
+      ;; Inactive timestamp: [YYYY-
+      (and (= c \[) (<= (+ i 6) len)
+           (Character/isDigit (.charAt text (inc i))))
+      (try-parse-timestamp text i false)
+
+      ;; Emphasis: * / _ +
+      (and (contains? emphasis-type c) (emphasis-pre? text i))
+      (when-let [close (find-close-marker text i c)]
+        [{:type (emphasis-type c)
+          :children (do-parse-inline (subs text (inc i) close))}
+         (inc close)])
+
+      ;; Code/verbatim: ~ =
+      (and (contains? literal-type c) (emphasis-pre? text i))
+      (when-let [close (find-close-marker text i c)]
+        [{:type (literal-type c) :value (subs text (inc i) close)}
+         (inc close)])
+
+      ;; LaTeX fragment: \( \[ $ $$
+      (or (= c \\) (= c \$))
+      (try-parse-latex-fragment text i))))
+
 (defn- do-parse-inline [^String text]
   (let [len (.length text)
         buf (StringBuilder.)
@@ -755,73 +783,20 @@
                        (let [t (replace-entities (.toString buf))]
                          (.setLength buf 0)
                          (conj nodes {:type :text :value t}))
-                       nodes))
-        skip! (fn [c] (.append buf c))]
+                       nodes))]
     (loop [pos (long 0) nodes []]
       (if (>= pos len)
         (flush-buf! nodes)
+        ;; Copy plain text up to the next special character in one call
         (let [i (if (.find matcher (int pos)) (long (.start matcher)) (long len))]
           (when (> i pos)
             (.append buf ^CharSequence text (int pos) (int i)))
           (if (>= i len)
             (flush-buf! nodes)
             (let [c (.charAt text i)]
-              (cond
-            ;; Link: [[
-            (and (= c \[) (< (inc i) len) (= (.charAt text (inc i)) \[))
-            (if-let [[node end] (try-parse-link text i)]
-              (recur (long end) (conj (flush-buf! nodes) node))
-              (do (skip! c) (recur (inc i) nodes)))
-
-            ;; Footnote: [fn:
-            (and (= c \[) (<= (+ i 4) len) (= (subs text i (+ i 4)) "[fn:"))
-            (if-let [[node end] (try-parse-footnote text i)]
-              (recur (long end) (conj (flush-buf! nodes) node))
-              (do (skip! c) (recur (inc i) nodes)))
-
-            ;; Active timestamp: <YYYY-
-            (and (= c \<) (<= (+ i 6) len)
-                 (Character/isDigit (.charAt text (inc i))))
-            (if-let [[node end] (try-parse-timestamp text i true)]
-              (recur (long end) (conj (flush-buf! nodes) node))
-              (do (skip! c) (recur (inc i) nodes)))
-
-            ;; Inactive timestamp: [YYYY- (not link, not footnote)
-            (and (= c \[) (<= (+ i 6) len)
-                 (not= (.charAt text (inc i)) \[)
-                 (not= (.charAt text (inc i)) \f)
-                 (Character/isDigit (.charAt text (inc i))))
-            (if-let [[node end] (try-parse-timestamp text i false)]
-              (recur (long end) (conj (flush-buf! nodes) node))
-              (do (skip! c) (recur (inc i) nodes)))
-
-            ;; Emphasis: * / _ +
-            (and (contains? emphasis-type c) (emphasis-pre? text i))
-            (if-let [close (find-close-marker text i c)]
-              (recur (long (inc close))
-                     (conj (flush-buf! nodes)
-                           {:type (emphasis-type c)
-                            :children (do-parse-inline (subs text (inc i) close))}))
-              (do (skip! c) (recur (inc i) nodes)))
-
-            ;; Code/verbatim: ~ =
-            (and (contains? literal-type c) (emphasis-pre? text i))
-            (if-let [close (find-close-marker text i c)]
-              (recur (long (inc close))
-                     (conj (flush-buf! nodes)
-                           {:type (literal-type c)
-                            :value (subs text (inc i) close)}))
-              (do (skip! c) (recur (inc i) nodes)))
-
-            ;; LaTeX fragment: \( \[ $ $$
-            (or (= c \\) (= c \$))
-            (if-let [[node end] (try-parse-latex-fragment text i)]
-              (recur (long end) (conj (flush-buf! nodes) node))
-              (do (skip! c) (recur (inc i) nodes)))
-
-            ;; Plain character
-            :else
-            (do (skip! c) (recur (inc i) nodes))))))))))
+              (if-let [[node end] (parse-inline-at text i c)]
+                (recur (long end) (conj (flush-buf! nodes) node))
+                (do (.append buf c) (recur (inc i) nodes))))))))))
 
 (defn parse-inline
   "Parse Org inline markup into a vector of typed nodes.
@@ -890,39 +865,29 @@
   (let [indexed (index-lines (str/split-lines input))]
     (loop [result []
            remaining indexed
-           in-block false
-           block-type nil
-           block-end-pattern nil]
+           end-pattern nil]               ; set inside a block or environment
       (if (empty? remaining)
         result
         (let [{:keys [line num] :as current} (first remaining)
               rest-lines (rest remaining)
               next-line (:line (first rest-lines))]
-          (cond
-            ;; When inside a block, only check for the matching end
-            (and in-block block-end-pattern (re-matches block-end-pattern line))
-            (recur (conj result current) rest-lines false nil nil)
-
-            ;; When inside a block, don't check for other patterns
-            in-block
-            (recur (conj result current) rest-lines true block-type block-end-pattern)
-
-            ;; Not in a block - check for block start
-            :else
-            (if-let [[_ btype] (re-matches generic-block-begin-pattern line)]
-              (recur (conj result current) rest-lines true btype
-                     (end-pattern-for btype))
-              (if-let [[_ env] (re-matches latex-env-begin-pattern line)]
-                (recur (conj result current) rest-lines true env
-                       (latex-env-end-pattern-for env))
-                (if (or (nil? next-line) (hard-break? line next-line))
-                  (recur (conj result current) rest-lines false nil nil)
-                  (let [trimmed-next    (str/trim next-line)
-                        normalized-next (if (list-item? line)
-                                          (str/replace trimmed-next #"\s+" " ")
-                                          trimmed-next)
-                        new-current     {:line (str line " " normalized-next) :num num}]
-                    (recur result (cons new-current (rest rest-lines)) false nil nil)))))))))))
+          (if end-pattern
+            ;; Inside a block, keep lines as they are up to the end line
+            (recur (conj result current) rest-lines
+                   (when-not (re-matches end-pattern line) end-pattern))
+            (if-let [end (if-let [[_ btype] (re-matches generic-block-begin-pattern line)]
+                           (end-pattern-for btype)
+                           (when-let [[_ env] (re-matches latex-env-begin-pattern line)]
+                             (latex-env-end-pattern-for env)))]
+              (recur (conj result current) rest-lines end)
+              (if (or (nil? next-line) (hard-break? line next-line))
+                (recur (conj result current) rest-lines nil)
+                (let [trimmed-next    (str/trim next-line)
+                      normalized-next (if (list-item? line)
+                                        (str/replace trimmed-next #"\s+" " ")
+                                        trimmed-next)
+                      new-current     {:line (str line " " normalized-next) :num num}]
+                  (recur result (cons new-current (rest rest-lines)) nil))))))))))
 
 
 ;; Parsing Helpers
@@ -1001,9 +966,6 @@
       (assoc node :affiliated cleaned))
     node))
 
-(defn- flush-item [items current-item]
-  (if current-item (conj items current-item) items))
-
 (defn- ordered-marker? [marker]
   (boolean (re-matches #"(?:\d+|[A-Za-z])[.)]" marker)))
 
@@ -1069,7 +1031,7 @@
 
 (defn- parse-property-drawer
   "Parse a :PROPERTIES: drawer at the head of indexed-lines.
-   Returns [nil properties remaining], or nil when the drawer is unterminated
+   Returns [properties remaining], or nil when the drawer is unterminated
    before the next headline — Emacs then treats the lines as a paragraph, so
    callers must fall back without consuming anything."
   [indexed-lines]
@@ -1082,13 +1044,13 @@
         nil
 
         (re-matches property-drawer-end-pattern line)
-        [nil properties more]
+        [properties more]
 
         :else
         (if-let [[_ key value] (re-matches property-pattern line)]
           (recur more (assoc properties (keyword (str/lower-case key)) (str/trim value)))
           (recur more properties))))
-    [nil {} indexed-lines]))
+    [{} indexed-lines]))
 
 (defn- parse-drawer
   "Parse a generic drawer (:NAME: ... :END:).
@@ -1120,12 +1082,6 @@
   (when-let [[_ term definition] (re-matches description-item-pattern content)]
     {:term (str/trim term) :definition (if definition (str/trim definition) "")}))
 
-(defn- blank-line?
-  "True when an indexed line exists and is blank.  Two consecutive blank
-   lines end a list (every nesting level), as in Org."
-  [indexed-line]
-  (and indexed-line (str/blank? (:line indexed-line))))
-
 ;; Forward declaration - parse-content is defined later but needed by parse-list-items
 (declare ^:private parse-content)
 
@@ -1150,78 +1106,54 @@
    marker indent) — matching Org's rule that a line belongs to a list item only if it
    is indented past the item's bullet."
   [indexed-lines min-indent]
-  (loop [[{:keys [line]} & more :as remaining] indexed-lines
+  (loop [[{:keys [line ltype] :as current} & more :as remaining] indexed-lines
          collected []
-         in-block false
-         block-type nil
-         block-end-pattern nil]
-    (let [block-begin-match (when (and line (not in-block))
-                              (re-matches generic-block-begin-pattern line))
-          li-match (when (and line (not in-block))
-                     (re-matches *list-item-pattern* line))]
-      (cond
-        (empty? remaining)
-        [collected remaining]
+         end-pattern nil]                 ; set inside a block or drawer
+    (cond
+      (empty? remaining)
+      [collected remaining]
 
-        (nil? line)
-        [collected remaining]
+      ;; Inside a block or drawer, take every line up to its end line
+      end-pattern
+      (recur more (conj collected current)
+             (when-not (re-matches end-pattern line) end-pattern))
 
-        ;; Stop at headlines (but only outside blocks)
-        (and (not in-block) (headline? line))
-        [collected remaining]
+      (= ltype :headline)
+      [collected remaining]
 
-        ;; Track block start
-        block-begin-match
-        (let [[_ btype] block-begin-match]
-          (recur more (conj collected (first remaining)) true btype
-                 (end-pattern-for btype)))
+      (= ltype :block-begin)
+      (recur more (conj collected current)
+             (end-pattern-for (second (re-matches generic-block-begin-pattern line))))
 
-        ;; Drawer opened on a continuation line: the item extends to the
-        ;; drawer's :END: even when the drawer contents are not indented
-        (and (not in-block)
-             (> (leading-indent line) min-indent)
-             (drawer-start? line)
-             (drawer-terminated? more))
-        (recur more (conj collected (first remaining)) true "drawer" drawer-end-pattern)
+      ;; Drawer opened on a continuation line: the item extends to the
+      ;; drawer's :END: even when the drawer contents are not indented
+      (and (= ltype :drawer-start)
+           (> (leading-indent line) min-indent)
+           (drawer-terminated? more))
+      (recur more (conj collected current) drawer-end-pattern)
 
-        ;; Track block end
-        (and in-block
-             block-end-pattern
-             (re-matches block-end-pattern line))
-        (recur more (conj collected (first remaining)) false nil nil)
+      ;; A list item at the same or a lesser indent starts the next item
+      (and (= ltype :list-item) (<= (leading-indent line) min-indent))
+      [collected remaining]
 
-        ;; Inside a block - always include the line
-        in-block
-        (recur more (conj collected (first remaining)) true block-type block-end-pattern)
+      ;; A blank line belongs to the item only if a continuation follows: a
+      ;; deeper list item or a line indented past the bullet. Otherwise leave
+      ;; it unconsumed for parse-content to count as a trailing blank. Two
+      ;; blank lines end the item, as in Org.
+      (= ltype :blank)
+      (let [{next-line :line next-type :ltype :as next} (first more)]
+        (if (or (nil? next)
+                (#{:blank :headline} next-type)
+                (and (not= next-type :list-item)
+                     (<= (leading-indent next-line) min-indent)))
+          [collected remaining]
+          (recur more (conj collected current) nil)))
 
-        ;; Stop at list items (same or less indent) - only outside blocks
-        (and li-match
-             (let [[_ indent _ _] li-match]
-               (<= (count indent) min-indent)))
-        [collected remaining]
+      (> (leading-indent line) min-indent)
+      (recur more (conj collected current) nil)
 
-        ;; Blank lines: only consume if a continuation follows (line indented past the
-        ;; item's marker, or a deeper list item). If what follows is a headline, a shallow
-        ;; list item, or content not indented past min-indent, stop and leave blanks
-        ;; unconsumed so parse-content can count them as trailing-blanks.
-        (str/blank? line)
-        (let [next-non-blank (first (drop-while #(str/blank? (:line %)) more))
-              next-line      (:line next-non-blank)]
-          (if (or (nil? next-non-blank)
-                  (blank-line? (first more))
-                  (headline? next-line)
-                  (and (not (re-matches *list-item-pattern* next-line))
-                       (<= (leading-indent next-line) min-indent)))
-            [collected remaining]
-            (recur more (conj collected (first remaining)) false nil nil)))
-
-        ;; Indented continuation lines (strictly deeper than min-indent) are included
-        (> (leading-indent line) min-indent)
-        (recur more (conj collected (first remaining)) false nil nil)
-
-        ;; Non-indented / shallow-indent non-blank line ends the item (only outside blocks)
-        :else
-        [collected remaining]))))
+      :else
+      [collected remaining])))
 
 (def ^:private counter-set-pattern
   #"^\[@(?:start:)?(\d+|[A-Za-z])\]\s*(.*)$")
@@ -1244,83 +1176,75 @@
   (when-let [[_ indent marker content] (re-matches *list-item-pattern* line)]
     [indent marker content]))
 
+(defn- description-definition
+  "For a description item `term ::` whose definition is empty, take the
+   first content line of the body as the definition, every other line
+   (#+KEY: lines included) staying in the body. Returns [definition body]."
+  [desc-item body-lines]
+  (if (and (str/blank? (:definition desc-item)) (seq body-lines))
+    (let [skip?         #(or (str/blank? (:line %))
+                             (ignored-keyword-line? (:line %)))
+          first-content (first (drop-while skip? body-lines))]
+      (if (and first-content (not (list-item? (:line first-content))))
+        [(str/trim (:line first-content))
+         (vec (remove #(identical? % first-content) body-lines))]
+        ["" body-lines]))
+    [(:definition desc-item) body-lines]))
+
+(defn- parse-list-item
+  "Build the item whose bullet line, at line num, holds content (the text
+   after the bullet), reading its body from more. Returns [item remaining]."
+  [content more indent ordered? num]
+  (let [[counter content]  (if ordered? (split-counter content) [nil content])
+        desc-item          (parse-description-item content)
+        [body-lines rest-after-body] (collect-list-item-body more indent)
+        [definition body]  (if desc-item
+                             (description-definition desc-item body-lines)
+                             [nil body-lines])
+        children           (if (seq body) (first (parse-content body)) [])]
+    [(make-node :list-item
+                :counter counter
+                :term (when desc-item (parse-inline (:term desc-item)))
+                :definition (when desc-item (parse-inline definition))
+                :content (when-not desc-item (parse-inline content))
+                :children children
+                :line num)
+     rest-after-body]))
+
 (defn- parse-list-items [indexed-lines initial-indent initial-marker]
-  (let [normalized-initial (normalize-marker initial-marker)]
-    (loop [[{:keys [line num]} & more :as remaining] indexed-lines
-           items [] current-item nil]
-      (if (or (empty? remaining) (nil? line))
-        [(flush-item items current-item) remaining]
-        (let [li-match (list-item-match line)]
-          (cond
-            ;; Headlines always end the list
-            (headline? line)
-            [(flush-item items current-item) remaining]
+  (let [normalized-initial (normalize-marker initial-marker)
+        ordered?           (= :ordered normalized-initial)
+        ;; [indent marker content] of a line continuing this list, or nil.
+        ;; Deeper list items never reach this loop: collect-list-item-body
+        ;; consumes them into the current item's body, where parse-content
+        ;; builds the sublist.
+        sibling            (fn [line]
+                             (when-let [[indent marker :as m] (list-item-match line)]
+                               (when (and (= (count indent) initial-indent)
+                                          (= (normalize-marker marker) normalized-initial))
+                                 m)))]
+    (loop [[{:keys [line ltype num]} & more :as remaining] indexed-lines
+           items []]
+      (cond
+        (or (empty? remaining) (= ltype :headline))
+        [items remaining]
 
-            ;; New list item at same indent level with same marker type.
-            ;; Deeper list items never reach this loop: collect-list-item-body
-            ;; consumes them into the current item's body, where parse-content
-            ;; builds the sublist.
-            (and li-match
-                 (let [[indent marker _] li-match]
-                   (and (= (count indent) initial-indent)
-                        (= (normalize-marker marker) normalized-initial))))
-            (let [[_indent _marker raw-content] li-match
-                  [counter content] (if (= :ordered normalized-initial)
-                                      (split-counter raw-content)
-                                      [nil raw-content])
-                  desc-item (parse-description-item content)
-                  [body-lines rest-after-body] (collect-list-item-body more initial-indent)
-                  [definition body-for-parsing]
-                  (if (and desc-item
-                           (str/blank? (:definition desc-item))
-                           (seq body-lines))
-                    ;; `- term ::` with the definition on the next line: the
-                    ;; first content line is the definition, every other line
-                    ;; (#+KEY: lines included) stays in the body.
-                    (let [skip?         #(or (str/blank? (:line %))
-                                             (ignored-keyword-line? (:line %)))
-                          first-content (first (drop-while skip? body-lines))]
-                      (if (and first-content
-                               (not (list-item? (:line first-content))))
-                        [(str/trim (:line first-content))
-                         (vec (remove #(identical? % first-content) body-lines))]
-                        ["" body-lines]))
-                    [(or (:definition desc-item) "") body-lines])
-                  [children _] (if (seq body-for-parsing)
-                                 (parse-content body-for-parsing)
-                                 [[] []])
-                  new-item (if desc-item
-                             (make-node :list-item
-                                        :counter counter
-                                        :term (parse-inline (:term desc-item))
-                                        :definition (parse-inline definition)
-                                        :children children
-                                        :line num)
-                             (make-node :list-item
-                                        :counter counter
-                                        :content (parse-inline content)
-                                        :children children
-                                        :line num))]
-              (recur rest-after-body
-                     (flush-item items current-item)
-                     new-item))
+        ;; A blank line stays in the list only before a sibling item; two
+        ;; blank lines end it, as in Org. Otherwise leave it unconsumed for
+        ;; parse-content to count as a trailing blank.
+        (= ltype :blank)
+        (let [{next-line :line next-type :ltype} (first more)]
+          (if (and next-line
+                   (not (#{:blank :headline} next-type))
+                   (sibling next-line))
+            (recur more items)
+            [items remaining]))
 
-            ;; Blank line - peek ahead: if the next non-blank line would end the list,
-            ;; leave blanks unconsumed so parse-content can count them as trailing-blanks.
-            (str/blank? line)
-            (let [next-non-blank (first (drop-while #(str/blank? (:line %)) more))]
-              (if (or (nil? next-non-blank)
-                      (blank-line? (first more))
-                      (headline? (:line next-non-blank))
-                      (not (when-let [[indent marker _] (list-item-match (:line next-non-blank))]
-                             (and (= (count indent) initial-indent)
-                                  (= (normalize-marker marker) normalized-initial)))))
-                [(flush-item items current-item) remaining]
-                (recur more items current-item)))
-
-            ;; End of list (different marker, less indent, or non-continuation line)
-            :else
-            [(flush-item items current-item) remaining]))))))
+        :else
+        (if-let [[_ _ content] (sibling line)]
+          (let [[item rest-lines] (parse-list-item content more initial-indent ordered? num)]
+            (recur rest-lines (conj items item)))
+          [items remaining])))))
 
 (defn- process-list [indexed-lines]
   (let [{:keys [line num]} (first indexed-lines)]
@@ -1530,7 +1454,7 @@
           (recur rest-lines nodes affiliated 0))
 
         :property-drawer-start
-        (if-let [[_ properties rest-lines] (parse-property-drawer remaining)]
+        (if-let [[properties rest-lines] (parse-property-drawer remaining)]
           (let [drawer-node (make-node :property-drawer :properties properties
                                        :line (:num (first remaining)))]
             (recur rest-lines (conj nodes drawer-node) nil 0))
@@ -1615,8 +1539,7 @@
      (if (empty? remaining)
        [sections remaining blanks-before]
        (if-let [headline-data (parse-headline line)]
-         (let [{:keys [level title todo priority tags]} headline-data
-               title-inline (parse-inline title)]
+         (let [{:keys [level title todo priority tags]} headline-data]
            (if (and parent-level (<= level parent-level))
              ;; Return to parent level - pass back the blanks-before count
              ;; so parent can assign it to the next sibling
@@ -1629,9 +1552,9 @@
                      [nil more])
                    ;; An unterminated property drawer falls through to
                    ;; parse-content, which keeps its lines as a paragraph.
-                   [_ properties rest-after-props]
+                   [properties rest-after-props]
                    (or (parse-property-drawer rest-after-planning)
-                       [nil {} rest-after-planning])
+                       [{} rest-after-planning])
                    ;; Count blank lines immediately after headline/properties (before content)
                    [blanks-after-title rest-after-title-blanks]
                    (loop [lines rest-after-props n 0]
@@ -1644,7 +1567,7 @@
                    (parse-sections rest-after-content new-path-stack level content-trailing-blanks)
                    new-section (make-node :section
                                           :level level
-                                          :title title-inline
+                                          :title (parse-inline title)
                                           :todo todo
                                           :priority priority
                                           :tags tags
