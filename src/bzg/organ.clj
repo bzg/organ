@@ -1096,6 +1096,12 @@
   (when-let [[_ term definition] (re-matches description-item-pattern content)]
     {:term (str/trim term) :definition (if definition (str/trim definition) "")}))
 
+(defn- blank-line?
+  "True when an indexed line exists and is blank.  Two consecutive blank
+   lines end a list (every nesting level), as in Org."
+  [indexed-line]
+  (and indexed-line (str/blank? (:line indexed-line))))
+
 ;; Forward declaration - parse-content is defined later but needed by parse-list-items
 (declare ^:private parse-content)
 
@@ -1178,6 +1184,7 @@
         (let [next-non-blank (first (drop-while #(str/blank? (:line %)) more))
               next-line      (:line next-non-blank)]
           (if (or (nil? next-non-blank)
+                  (blank-line? (first more))
                   (headline? next-line)
                   (and (not (re-matches list-item-pattern next-line))
                        (<= (leading-indent next-line) min-indent)))
@@ -1279,6 +1286,7 @@
             (str/blank? line)
             (let [next-non-blank (first (drop-while #(str/blank? (:line %)) more))]
               (if (or (nil? next-non-blank)
+                      (blank-line? (first more))
                       (headline? (:line next-non-blank))
                       (not (when-let [[indent marker _] (list-item-match (:line next-non-blank))]
                              (and (= (count indent) initial-indent)

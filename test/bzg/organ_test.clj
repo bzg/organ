@@ -43,6 +43,8 @@
 
 (defn test-all []
   (let [results
+        ;; flatten: a form may return a vector of several assert= results
+        (flatten
         [(assert= "parse empty string"
                   :document
                   (:type (organ/parse-org "")))
@@ -355,6 +357,25 @@
                   (mapv :description
                         (:children (organ/parse-org "- Term :: Def\n+ Plain"))))
 
+         ;; --- Two blank lines end a list ---
+         (let [list-sizes #(mapv (comp count :items) (:children (organ/parse-org %)))]
+           [(assert= "one blank line keeps the list"
+                    [2]
+                    (list-sizes "- a\n\n- b"))
+           (assert= "two blank lines end the list"
+                    [2 1]
+                    (list-sizes "- a\n- b\n\n\n- c"))
+           (assert= "two blank lines end nested lists too"
+                    [1 1 1]
+                    (list-sizes "- a\n  - a1\n\n\n  - a2\n- b"))
+           (assert= "two blank lines inside a block keep the item"
+                    [2]
+                    (list-sizes "- a\n  #+begin_src\n  x\n\n\n  y\n  #+end_src\n- b"))])
+
+         (assert= "two blank lines end an item before indented text"
+                  [:list :paragraph]
+                  (mapv :type (:children (organ/parse-org "- a\n\n\n  para"))))
+
          ;; --- Ordered list detection ---
          (let [ast (organ/parse-org "1. First\n2. Second")]
            (assert= "ordered list"
@@ -364,21 +385,21 @@
          ;; --- Ordered list counter-set cookie ---
          (let [items (-> (organ/parse-org "1. a\n2. b\n5. [@5] e\n6. f")
                          :children first :items)]
-           (assert= "counter-set on ordered item"
+           [(assert= "counter-set on ordered item"
                     [nil nil 5 nil]
                     (mapv :counter items))
            (assert= "counter-set stripped from content"
                     "e"
-                    (organ/inline-text (:content (nth items 2)))))
+                    (organ/inline-text (:content (nth items 2))))])
 
          (let [items (-> (organ/parse-org "1) [@start:3] x\n2) [@c] y\n3. [@4] t :: d")
                          :children first :items)]
-           (assert= "counter-set start: prefix and letter counter"
+           [(assert= "counter-set start: prefix and letter counter"
                     [3 3 4]
                     (mapv :counter items))
            (assert= "counter-set before description term"
                     "t"
-                    (organ/inline-text (:term (nth items 2)))))
+                    (organ/inline-text (:term (nth items 2))))])
 
          (let [item (-> (organ/parse-org "- [@3] z") :children first :items first)]
            (assert= "counter-set ignored on unordered item"
@@ -1184,7 +1205,7 @@
              (let [ast (organ/parse-org (slurp test-file))]
                (assert= "test.org parses as document"
                         :document (:type ast)))
-             (do (println "  SKIP test.org (not found)") :skip)))]]
+             (do (println "  SKIP test.org (not found)") :skip)))])]
 
     (let [{:keys [pass fail skip]} (merge {:pass 0 :fail 0 :skip 0} (frequencies results))]
       (println (str "\n" pass "/" (count results) " passed"
