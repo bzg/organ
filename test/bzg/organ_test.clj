@@ -1379,6 +1379,13 @@
                        :children
                        (mapv (juxt :todo :priority #(some-> (:title %) organ/inline-text) :tags))))
 
+         ;; --- Tags: letters and digits of any script, and _ @ # % ---
+         (assert= "non-ASCII tags, # and %"
+                  [["Titre" ["été" "à_faire"]] ["T2" ["a#b" "50%" "@home"]] ["T3 :a-b:" nil]]
+                  (->> (organ/parse-org "* Titre :été:à_faire:\n* T2 :a#b:50%:@home:\n* T3 :a-b:")
+                       :children
+                       (mapv (juxt #(organ/inline-text (:title %)) :tags))))
+
          ;; --- Test from test.org file if available ---
          (let [test-file "test/bzg/test.org"]
            (if (.exists (java.io.File. test-file))

@@ -177,7 +177,8 @@
    keyword and the priority may end the line (\"* TODO\": no title). The
    possessive quantifiers keep the regex from giving back what it took as
    a keyword, a priority or blanks so as to read a lone :tag: as tags: tags
-   come after a title, as in Org."
+   come after a title, as in Org. Tags are made of letters and digits of
+   any script, and of _ @ # %."
   [{:keys [todo done]}]
   (let [kws (distinct (concat todo done))
         kws (if (seq kws) kws (concat (:todo default-todo-keywords)
@@ -185,7 +186,7 @@
     (re-pattern
      (str "^(\\*+)\\s++(?:("
           (str/join "|" (map #(java.util.regex.Pattern/quote %) kws))
-          ")(?:\\s++|$))?+(?:\\[#([A-Z])\\](?:\\s++|$))?+(.*?)(?:\\s+(:[:\\w@]+:))?\\s*$"))))
+          ")(?:\\s++|$))?+(?:\\[#([A-Z])\\](?:\\s++|$))?+(.*?)(?:\\s+(:[:\\p{L}\\p{N}_@#%]+:))?\\s*$"))))
 
 (def ^:private ^:dynamic *headline-full-pattern*
   (headline-pattern-for default-todo-keywords))
