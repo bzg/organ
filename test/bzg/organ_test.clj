@@ -1392,6 +1392,14 @@
                   (let [[_ f t :as nodes] (organ/parse-inline "Text[fn::see [[https://x.org][x]] ok] end [fn::open")]
                     [(mapv :type nodes) (organ/inline-text (:children f)) (:value t)]))
 
+         ;; --- An inline footnote starting a line is not a definition ---
+         (assert= "paragraphs starting with an inline footnote"
+                  [[:paragraph :paragraph :footnote-def]
+                   [:text :footnote-inline :text]
+                   [:footnote-inline :text]]
+                  (let [[p1 p2 :as nodes] (:children (organ/parse-org "Some text\n[fn::An anonymous note] goes on.\n\n[fn:lbl:Inline def] another.\n\n[fn:1] A definition."))]
+                    [(mapv :type nodes) (mapv :type (:content p1)) (mapv :type (:content p2))]))
+
          ;; --- Test from test.org file if available ---
          (let [test-file "test/bzg/test.org"]
            (if (.exists (java.io.File. test-file))

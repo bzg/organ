@@ -77,7 +77,9 @@
 (def ^:private latex-line-pattern #"(?i)^\s*#\+latex:\s*(.*)$")
 (def ^:private block-begin-pattern #"(?i)^\s*#\+BEGIN.*$")
 (def ^:private fixed-width-pattern #"^\s*: (.*)$")
-(def ^:private footnote-def-pattern #"^\[fn:([^\]]+)\]\s*(.*)$")
+;; No colon in the label: [fn:label:text] and [fn::text] starting a line
+;; are inline footnotes in a paragraph, not definitions.
+(def ^:private footnote-def-pattern #"^\[fn:([^\]:]+)\]\s*(.*)$")
 (def ^:private link-type-pattern #"^(file|id|mailto|http|https|ftp|news|shell|elisp|doi):(.*)$")
 ;; The optional [...] is a short caption (#+CAPTION[short]: long) or a
 ;; cached result's hash (#+RESULTS[hash]: name); it is not kept.
@@ -481,7 +483,7 @@
    unwrapping as the next line: list item, block begin, footnote
    definition and LaTeX environment begin."
   #"(?x)\*+\s.*                # headline (anchored at column 0)
-    |\[fn:[^\]]+\].*           # footnote definition (anchored at column 0)
+    |\[fn:[^\]:]+\].*          # footnote definition (anchored at column 0)
     |\s*
      (?:\#\+\w+(?:\[[^\]]*\])?:.* # metadata, affiliated keyword
        |\|.*                   # table
