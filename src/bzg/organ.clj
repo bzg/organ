@@ -51,8 +51,7 @@
 
 ;; Regex Patterns
 (def ^:private headline-pattern #"^(\*+)\s+(.*)$")
-(def ^:private property-drawer-start-pattern #"^\s*:PROPERTIES:\s*$")
-(def ^:private property-drawer-end-pattern #"^\s*:END:\s*$")
+(def ^:private property-drawer-start-pattern #"(?i)^\s*:PROPERTIES:\s*$")
 (def ^:private drawer-start-pattern #"^\s*:([A-Za-z][\w_-]*?):\s*$")
 (def ^:private drawer-end-pattern #"(?i)^\s*:END:\s*$")
 (def ^:private property-pattern #"^\s*:([\w_-]+):\s*(.*)$")
@@ -1183,7 +1182,7 @@
         (or (empty? remaining) (headline? line))
         nil
 
-        (re-matches property-drawer-end-pattern line)
+        (re-matches drawer-end-pattern line)
         [properties more]
 
         :else

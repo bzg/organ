@@ -1345,6 +1345,12 @@
                     [(-> nodes first :items first :content organ/inline-text)
                      (mapv :type nodes)]))
 
+         ;; --- :PROPERTIES: and :END: in any case, as in Org ---
+         (assert= "lower-case property drawer"
+                  [{:id "abc"} [:paragraph] {:id "def"}]
+                  (let [[a b] (:children (organ/parse-org "* A\n:properties:\n:id: abc\n:end:\nText\n* B\n:PROPERTIES:\n:ID: def\n:end:"))]
+                    [(:properties a) (mapv :type (:children a)) (:properties b)]))
+
          ;; --- Test from test.org file if available ---
          (let [test-file "test/bzg/test.org"]
            (if (.exists (java.io.File. test-file))
