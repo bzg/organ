@@ -193,8 +193,11 @@
 (def ^:private ^:dynamic *headline-full-pattern*
   (headline-pattern-for default-todo-keywords))
 
-;; LaTeX environment (block-level): \begin{env} ... \end{env}
-(def ^:private latex-env-begin-pattern #"^\s*\\begin\{([^}]+)\}\s*$")
+;; LaTeX environment (block-level): \begin{env} ... \end{env}. The begin
+;; line may go on (\begin{tabular}{ll}, \begin{equation}\label{eq}), but not
+;; up to its own \end{env}: the environment ends on a later line.
+(def ^:private latex-env-begin-pattern
+  #"^\s*\\begin\{([^}]+)\}(?!.*\\end\{\1\}).*$")
 (def ^:private latex-env-end-pattern-for
   "Memoized constructor for \\end{name} patterns."
   (memoize
@@ -493,7 +496,7 @@
        |(?:(?:CLOSED|SCHEDULED|DEADLINE):\s*(?:<[^>]+>|\[[^\]]+\])\s*)+ # planning
        |(?:[-+*]|\d+[.)])\s.*  # list item
        |\#\+(?i:BEGIN).*       # block begin
-       |\\begin\{[^}]+\}\s*    # LaTeX environment begin
+       |\\begin\{([^}]+)\}(?!.*\\end\{\1\}).* # LaTeX environment begin
      )?                        # empty alternative: blank line
    ")
 

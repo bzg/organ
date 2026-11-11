@@ -1400,6 +1400,19 @@
                   (let [[p1 p2 :as nodes] (:children (organ/parse-org "Some text\n[fn::An anonymous note] goes on.\n\n[fn:lbl:Inline def] another.\n\n[fn:1] A definition."))]
                     [(mapv :type nodes) (mapv :type (:content p1)) (mapv :type (:content p2))]))
 
+         ;; --- A \begin{env} line may carry arguments or a label ---
+         (assert= "LaTeX environments whose begin line goes on"
+                  [[:latex-environment :latex-environment :paragraph]
+                   ["tabular" "\\begin{tabular}{ll}\na & b\n\\end{tabular}"]
+                   ["equation" "\\begin{equation}\\label{eq:1}\nx\n\\end{equation}"]
+                   nil]
+                  (let [ast (organ/parse-org "\\begin{tabular}{ll}\na & b\n\\end{tabular}\n\n\\begin{equation}\\label{eq:1}\nx\n\\end{equation}\n\n\\begin{math} x \\end{math} on one line")
+                        [e1 e2 :as nodes] (:children ast)]
+                    [(mapv :type nodes)
+                     ((juxt :name :content) e1)
+                     ((juxt :name :content) e2)
+                     (:parse-errors ast)]))
+
          ;; --- Test from test.org file if available ---
          (let [test-file "test/bzg/test.org"]
            (if (.exists (java.io.File. test-file))
