@@ -79,7 +79,10 @@
 (def ^:private fixed-width-pattern #"^\s*: (.*)$")
 (def ^:private footnote-def-pattern #"^\[fn:([^\]]+)\]\s*(.*)$")
 (def ^:private link-type-pattern #"^(file|id|mailto|http|https|ftp|news|shell|elisp|doi):(.*)$")
-(def ^:private affiliated-keyword-pattern #"(?i)^\s*#\+(attr_\w+|caption|name|header|results):\s*(.*)$")
+;; The optional [...] is a short caption (#+CAPTION[short]: long) or a
+;; cached result's hash (#+RESULTS[hash]: name); it is not kept.
+(def ^:private affiliated-keyword-pattern
+  #"(?i)^\s*#\+(attr_\w+|caption|name|header|results)(?:\[[^\]]*\])?:\s*(.*)$")
 
 ;; LaTeX fragment patterns (inline math).
 (def ^:private latex-paren-pattern    #"^\\\(([\s\S]+?)\\\)")
@@ -459,7 +462,7 @@
    interpreted. Keep in sync with the individual patterns above."
   #"(?x)\*+\s.*                # headline (anchored at column 0)
     |\s*
-     (?:\#\+\w+:.*             # metadata
+     (?:\#\+\w+(?:\[[^\]]*\])?:.* # metadata, affiliated keyword
        |\|.*                   # table
        |\#(?:\s.*)?            # comment
        |:[\w_-]+:.*            # property line, drawer start/end
@@ -475,7 +478,7 @@
   #"(?x)\*+\s.*                # headline (anchored at column 0)
     |\[fn:[^\]]+\].*           # footnote definition (anchored at column 0)
     |\s*
-     (?:\#\+\w+:.*             # metadata
+     (?:\#\+\w+(?:\[[^\]]*\])?:.* # metadata, affiliated keyword
        |\|.*                   # table
        |\#(?:\s.*)?            # comment
        |:[\w_-]+:.*            # property line, drawer start/end

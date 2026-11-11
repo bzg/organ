@@ -1364,6 +1364,12 @@
                                             " :controls :data-x 1 :title \"\" :class a b\n[[file:x.png]]"))
                       :children first :affiliated :attr :html))
 
+         ;; --- Affiliated keywords with an optional part: #+CAPTION[short]:, #+RESULTS[hash]: ---
+         (assert= "short caption and cached results"
+                  [[:paragraph :table] {:caption "long caption"} {:results "tbl"}]
+                  (let [[p f :as nodes] (:children (organ/parse-org "#+CAPTION[short]: long caption\n[[file:x.png]]\n\n#+RESULTS[abc123]: tbl\n| 42 |"))]
+                    [(mapv :type nodes) (:affiliated p) (:affiliated f)]))
+
          ;; --- Test from test.org file if available ---
          (let [test-file "test/bzg/test.org"]
            (if (.exists (java.io.File. test-file))
