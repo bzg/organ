@@ -173,15 +173,19 @@
 
 (defn- headline-pattern-for
   "Full headline regex recognising the given {:todo [...] :done [...]}
-   keywords (falls back to the default set when both are empty)."
+   keywords (falls back to the default set when both are empty). The
+   keyword and the priority may end the line (\"* TODO\": no title). The
+   possessive quantifiers keep the regex from giving back what it took as
+   a keyword, a priority or blanks so as to read a lone :tag: as tags: tags
+   come after a title, as in Org."
   [{:keys [todo done]}]
   (let [kws (distinct (concat todo done))
         kws (if (seq kws) kws (concat (:todo default-todo-keywords)
                                       (:done default-todo-keywords)))]
     (re-pattern
-     (str "^(\\*+)\\s+(?:("
+     (str "^(\\*+)\\s++(?:("
           (str/join "|" (map #(java.util.regex.Pattern/quote %) kws))
-          ")\\s+)?(?:\\[#([A-Z])\\]\\s+)?(.+?)(?:\\s+(:[:\\w@]+:))?\\s*$"))))
+          ")(?:\\s++|$))?+(?:\\[#([A-Z])\\](?:\\s++|$))?+(.*?)(?:\\s+(:[:\\w@]+:))?\\s*$"))))
 
 (def ^:private ^:dynamic *headline-full-pattern*
   (headline-pattern-for default-todo-keywords))
@@ -1108,7 +1112,7 @@
 
 ;; Parsing Functions
 (defn- parse-headline [line]
-  (if-let [[_ stars todo priority title tags] (re-matches *headline-full-pattern* line)]
+  (when-let [[_ stars todo priority title tags] (re-matches *headline-full-pattern* line)]
     {:level (count stars)
      :title (str/trim title)
      :todo (when todo (keyword todo))
@@ -1116,9 +1120,7 @@
      :tags (when tags
              (->> (str/split (str/replace tags #"^:|:$" "") #":")
                   (filter seq)
-                  vec))}
-    (when-let [[_ stars title] (re-matches headline-pattern line)]
-      {:level (count stars) :title (str/trim title)})))
+                  vec))}))
 
 (defn- kvs->meta
   "Build the :meta map from [key value] pairs: an array map in first-

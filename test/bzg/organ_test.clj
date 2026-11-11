@@ -1370,6 +1370,15 @@
                   (let [[p f :as nodes] (:children (organ/parse-org "#+CAPTION[short]: long caption\n[[file:x.png]]\n\n#+RESULTS[abc123]: tbl\n| 42 |"))]
                     [(mapv :type nodes) (:affiliated p) (:affiliated f)]))
 
+         ;; --- A TODO keyword or a priority may end the headline ---
+         (assert= "headlines without a title"
+                  [[:TODO nil nil nil] [:DONE nil nil nil] [:TODO "A" nil nil] [nil "B" nil nil]
+                   [nil nil "TODOS" nil] [:TODO nil ":tag:" nil] [nil nil ":tag:" nil] [nil nil nil nil]
+                   [:TODO "A" "Do it" ["x" "y"]]]
+                  (->> (organ/parse-org "* TODO\n* DONE  \n* TODO [#A]\n* [#B]\n* TODOS\n* TODO :tag:\n*   :tag:\n* \n* TODO [#A] Do it :x:y:")
+                       :children
+                       (mapv (juxt :todo :priority #(some-> (:title %) organ/inline-text) :tags))))
+
          ;; --- Test from test.org file if available ---
          (let [test-file "test/bzg/test.org"]
            (if (.exists (java.io.File. test-file))
