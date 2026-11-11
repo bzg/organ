@@ -1413,6 +1413,12 @@
                      ((juxt :name :content) e2)
                      (:parse-errors ast)]))
 
+         ;; --- A lone colon is an empty fixed-width line ---
+         (assert= "empty line inside a fixed-width area"
+                  [[:fixed-width] "a\n\n  b"]
+                  (let [nodes (:children (organ/parse-org ": a\n:\n:   b"))]
+                    [(mapv :type nodes) (:content (first nodes))]))
+
          ;; --- Test from test.org file if available ---
          (let [test-file "test/bzg/test.org"]
            (if (.exists (java.io.File. test-file))

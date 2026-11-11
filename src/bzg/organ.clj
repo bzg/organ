@@ -76,7 +76,7 @@
 (def ^:private html-line-pattern #"(?i)^\s*#\+html:\s*(.*)$")
 (def ^:private latex-line-pattern #"(?i)^\s*#\+latex:\s*(.*)$")
 (def ^:private block-begin-pattern #"(?i)^\s*#\+BEGIN.*$")
-(def ^:private fixed-width-pattern #"^\s*: (.*)$")
+(def ^:private fixed-width-pattern #"^\s*:(?: (.*))?$")
 ;; No colon in the label: [fn:label:text] and [fn::text] starting a line
 ;; are inline footnotes in a paragraph, not definitions.
 (def ^:private footnote-def-pattern #"^\[fn:([^\]:]+)\]\s*(.*)$")
@@ -476,7 +476,7 @@
        |\|.*                   # table
        |\#(?:\s.*)?            # comment
        |:[\w_-]+:.*            # property line, drawer start/end
-       |:\ .*                  # fixed width
+       |:(?:\ .*)?             # fixed width
        |(?:(?:CLOSED|SCHEDULED|DEADLINE):\s*(?:<[^>]+>|\[[^\]]+\])\s*)+ # planning
      )?                        # empty alternative: blank line
    ")
@@ -492,7 +492,7 @@
        |\|.*                   # table
        |\#(?:\s.*)?            # comment
        |:[\w_-]+:.*            # property line, drawer start/end
-       |:\ .*                  # fixed width
+       |:(?:\ .*)?             # fixed width
        |(?:(?:CLOSED|SCHEDULED|DEADLINE):\s*(?:<[^>]+>|\[[^\]]+\])\s*)+ # planning
        |(?:[-+*]|\d+[.)])\s.*  # list item
        |\#\+(?i:BEGIN).*       # block begin
@@ -1530,8 +1530,9 @@
 (defn- parse-fixed-width [indexed-lines]
   (parse-consecutive-lines
    indexed-lines
-   ;; A :fixed-width line is whitespace, ": ", then the content
-   #(subs % (+ 2 (str/index-of % ":"))) :fixed-width))
+   ;; A :fixed-width line is whitespace, ": ", then the content, or a
+   ;; lone ":" (an empty line)
+   #(or (second (re-matches fixed-width-pattern %)) "") :fixed-width))
 
 (defn- parse-html-lines [indexed-lines]
   (parse-consecutive-lines
