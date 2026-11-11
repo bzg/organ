@@ -1424,6 +1424,17 @@
                   "a αb, πr, a b and ⇒ c \\alphabet{}"
                   (organ/inline-text (organ/parse-inline "a \\alpha{}b, \\pi{}r, a\\nbsp{}b and \\rArr{} c \\alphabet{}")))
 
+         ;; --- A bullet alone on its line is an item ---
+         (assert= "empty items and items whose contents start on the next line"
+                  [[:list] [nil nil "c d" nil] [[] [:keyword :paragraph] [] [:paragraph]]
+                   [:paragraph]]
+                  (let [nodes (:children (organ/parse-org "- \n-\n  #+vindex: x\n  text\n- c\n  d\n-\n\n  para"))
+                        items (-> nodes first :items)]
+                    [(mapv :type nodes)
+                     (mapv #(some-> (:content %) organ/inline-text) items)
+                     (mapv #(mapv :type (:children %)) items)
+                     (mapv :type (:children (organ/parse-org "a star\n*\nalone")))]))
+
          ;; --- Test from test.org file if available ---
          (let [test-file "test/bzg/test.org"]
            (if (.exists (java.io.File. test-file))

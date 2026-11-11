@@ -57,10 +57,12 @@
 ;; As in Org, a property name is any run of non-blank characters
 ;; (:header-args+:, :Foo.Bar:), closed by a colon then a blank or the end.
 (def ^:private property-pattern #"^\s*:(\S+):(?:\s+(.*))?$")
+;; A bullet alone on its line is an item too, its contents on the next
+;; lines (group 3 is nil then), except for a star.
 (def ^:private numeric-list-item-pattern
-  #"^(\s*)(-|\+|\*|\d+[.)])\s+(.*)$")
+  #"^(\s*)(-|\+|\*|\d+[.)])(?:\s+(.*)|(?<!\*))$")
 (def ^:private alphabetical-list-item-pattern
-  #"^(\s*)(-|\+|\*|(?:\d+|[A-Za-z])[.)])\s+(.*)$")
+  #"^(\s*)(-|\+|\*|(?:\d+|[A-Za-z])[.)])(?:\s+(.*)|(?<!\*))$")
 ;; Rebound by parse-org when :alphabetical-lists? is set: single-letter
 ;; bullets (a. b) A.) are only list items then, as with Org's
 ;; org-list-allow-alphabetical.
@@ -494,7 +496,7 @@
        |:[\w_-]+:.*            # property line, drawer start/end
        |:(?:\ .*)?             # fixed width
        |(?:(?:CLOSED|SCHEDULED|DEADLINE):\s*(?:<[^>]+>|\[[^\]]+\])\s*)+ # planning
-       |(?:[-+*]|\d+[.)])\s.*  # list item
+       |(?:[-+*]|\d+[.)])(?:\s.*|(?<!\*)) # list item
        |\#\+(?i:BEGIN).*       # block begin
        |\\begin\{([^}]+)\}(?!.*\\end\{\1\}).* # LaTeX environment begin
      )?                        # empty alternative: blank line
@@ -1353,7 +1355,7 @@
   "Parse a list item line, returning [indent marker content] or nil."
   [line]
   (when-let [[_ indent marker content] (re-matches *list-item-pattern* line)]
-    [indent marker content]))
+    [indent marker (or content "")]))
 
 (defn- description-definition
   "For a description item `term ::` whose definition is empty, take the
