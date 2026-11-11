@@ -922,7 +922,7 @@
                     current))]
     (loop [result []
            remaining indexed
-           end-pattern nil]               ; set inside a block or environment
+           end-pattern nil]               ; set inside a block, environment or drawer
       (if (empty? remaining)
         result
         (let [{:keys [line num] :as current} (first remaining)
@@ -933,7 +933,13 @@
             ;; headline ends an unterminated block, then unwrapping resumes)
             (recur (conj result current) rest-lines
                    (when-not (re-matches end-pattern line) end-pattern))
-            (if-let [end (block-end-pattern line)]
+            (if-let [end (or (block-end-pattern line)
+                             ;; A drawer is opaque too, when it is one: left
+                             ;; unterminated, it is a paragraph (see parse-drawer)
+                             (when (and (re-matches drawer-start-pattern line)
+                                        (not (re-matches drawer-end-pattern line))
+                                        (drawer-terminated? rest-lines))
+                               drawer-end-pattern))]
               (recur (conj result (done current)) rest-lines end)
               (if (or (nil? next-line) (hard-break? line next-line))
                 (recur (conj result (done current)) rest-lines nil)

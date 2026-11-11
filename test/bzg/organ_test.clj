@@ -1301,6 +1301,23 @@
                   (let [ast (organ/parse-org "# a\n\n# b\n#+TITLE: T\nText")]
                     [(mapv :type (:children ast)) (:meta ast)]))
 
+         ;; --- Drawer contents are literal: never unwrapped ---
+         (assert= "drawer lines are not joined"
+                  ["CLOCK: [2025-01-01 Wed 10:00]--[2025-01-01 Wed 11:00] =>  1:00\nCLOCK: [2025-01-02 Thu 10:00]--[2025-01-02 Thu 11:00] =>  1:00"
+                   "- State \"DONE\"   from \"TODO\"\n  more   text\nfree text"
+                   "Body text"]
+                  (let [ast (organ/parse-org (str "* H\n:LOGBOOK:\n"
+                                                  "CLOCK: [2025-01-01 Wed 10:00]--[2025-01-01 Wed 11:00] =>  1:00\n"
+                                                  "CLOCK: [2025-01-02 Thu 10:00]--[2025-01-02 Thu 11:00] =>  1:00\n"
+                                                  ":END:\n:NOTE:\n- State \"DONE\"   from \"TODO\"\n  more   text\nfree text\n:END:\n"
+                                                  "Body\ntext"))
+                        [d1 d2 p] (-> ast :children first :children)]
+                    [(:content d1) (:content d2) (organ/inline-text (:content p))]))
+
+         (assert= "an unterminated drawer is still unwrapped as a paragraph"
+                  ":NOTE:\none two"
+                  (-> (organ/parse-org ":NOTE:\none\ntwo") :children first :content organ/inline-text))
+
          ;; --- Test from test.org file if available ---
          (let [test-file "test/bzg/test.org"]
            (if (.exists (java.io.File. test-file))
