@@ -1386,6 +1386,12 @@
                        :children
                        (mapv (juxt #(organ/inline-text (:title %)) :tags))))
 
+         ;; --- Inline footnote holding a link ---
+         (assert= "inline footnote with a link, then text"
+                  [[:text :footnote-inline :text] "see x ok" " end [fn::open"]
+                  (let [[_ f t :as nodes] (organ/parse-inline "Text[fn::see [[https://x.org][x]] ok] end [fn::open")]
+                    [(mapv :type nodes) (organ/inline-text (:children f)) (:value t)]))
+
          ;; --- Test from test.org file if available ---
          (let [test-file "test/bzg/test.org"]
            (if (.exists (java.io.File. test-file))

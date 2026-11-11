@@ -728,10 +728,31 @@
           (when-not (neg? k)
             [(link-node (subs text start k) nil) (+ k 2)]))))))
 
-(defn- try-parse-footnote [text i]
-  (or (when-let [[full label content] (re-find-at #"^\[fn:([^\]:]*):([^\]]+)\]" text i)]
-        [{:type :footnote-inline :label label :children (do-parse-inline content)}
-         (+ i (count full))])
+(defn- matching-bracket
+  "Index of the ] closing the [ at position open of text, brackets in
+   between being balanced; nil when there is none."
+  [^String text ^long open]
+  (loop [from (inc open) depth 1]
+    (let [close (.indexOf text "]" (int from))
+          inner (.indexOf text "[" (int from))]
+      (cond
+        (neg? close)            nil
+        (< -1 inner close)      (recur (inc inner) (inc depth))
+        (= depth 1)             close
+        :else                   (recur (inc close) (dec depth))))))
+
+(defn- try-parse-footnote
+  "Parse the footnote opened by [fn: at position i: an inline definition
+   [fn:label:text] or [fn::text], whose text may hold brackets when they
+   are balanced (a link), or a reference [fn:label]."
+  [^String text ^long i]
+  (or (when-let [[head label] (re-find-at #"^\[fn:([^\]\[:]*):" text i)]
+        (let [start (+ i (count head))
+              close (matching-bracket text i)]
+          (when (and close (> (long close) start))
+            [{:type :footnote-inline :label label
+              :children (do-parse-inline (subs text start close))}
+             (inc (long close))])))
       (when-let [[full label] (re-find-at #"^\[fn:([\w-]+)\]" text i)]
         [{:type :footnote-ref :label label}
          (+ i (count full))])))
