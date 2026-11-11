@@ -695,19 +695,29 @@
       ;; re-groups is compiled into bb, unlike a loop over the groups
       (re-groups m))))
 
-(defn- try-parse-link [text i]
-  (or (when-let [[full url desc] (re-find-at #"^\[\[([^\]]*)\]\[((?:[^\]]|\](?!\]))*)\]\]" text i)]
-        (let [{:keys [link-type target]} (classify-link-url url)]
-          [(cond-> {:type :link :url url :children (do-parse-inline desc)}
-             link-type (assoc :link-type link-type)
-             target    (assoc :target target))
-           (+ i (count full))]))
-      (when-let [[full url] (re-find-at #"^\[\[((?:[^\]]|\](?!\]))*)\]\]" text i)]
-        (let [{:keys [link-type target]} (classify-link-url url)]
-          [(cond-> {:type :link :url url}
-             link-type (assoc :link-type link-type)
-             target    (assoc :target target))
-           (+ i (count full))]))))
+(defn- link-node [url description]
+  (let [{:keys [link-type target]} (classify-link-url url)]
+    (cond-> {:type :link :url url}
+      description (assoc :children (do-parse-inline description))
+      link-type   (assoc :link-type link-type)
+      target      (assoc :target target))))
+
+(defn- try-parse-link
+  "Parse the link opened by [[ at position i: [[url][description]] or
+   [[url]], closed by the first ]] found. Scanned with indexOf: a regex
+   alternation repeated over the link text recurses once per character
+   and overflows the stack on a long paragraph with an unclosed [[."
+  [^String text ^long i]
+  (let [start (+ i 2)
+        j     (.indexOf text "]" (int start))]
+    (when-not (neg? j)
+      (if (and (< (inc j) (.length text)) (= (.charAt text (inc j)) \[))
+        (let [k (.indexOf text "]]" (int (+ j 2)))]
+          (when-not (neg? k)
+            [(link-node (subs text start j) (subs text (+ j 2) k)) (+ k 2)]))
+        (let [k (.indexOf text "]]" (int j))]
+          (when-not (neg? k)
+            [(link-node (subs text start k) nil) (+ k 2)]))))))
 
 (defn- try-parse-footnote [text i]
   (or (when-let [[full label content] (re-find-at #"^\[fn:([^\]:]*):([^\]]+)\]" text i)]

@@ -1276,6 +1276,13 @@
                     [(organ/inline-text (:definition item))
                      (mapv :type (:children item))]))
 
+         ;; --- A long paragraph with an unclosed [[ must not overflow the stack ---
+         (assert= "unclosed [[ before a long text"
+                  [1 2]
+                  (let [long-text (apply str (repeat 50000 "x "))]
+                    [(count (organ/parse-inline (str "see [[ " long-text)))
+                     (count (organ/parse-inline (str "[[u][" long-text "]] end")))]))
+
          ;; --- Test from test.org file if available ---
          (let [test-file "test/bzg/test.org"]
            (if (.exists (java.io.File. test-file))
