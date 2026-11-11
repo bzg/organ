@@ -908,6 +908,20 @@
   ([nodes] (do-inline-text nodes :url))
   ([nodes opts] (do-inline-text nodes (bare-link-fn (get opts :bare-link :url)))))
 
+(defn- leading-indent
+  "Width of the leading whitespace (as \\s) of a line, a tab reaching the
+   next multiple of 8 as in Emacs."
+  [^CharSequence line]
+  (let [n (.length line)]
+    (loop [i 0 col 0]
+      (if (< i n)
+        (let [c (int (.charAt line i))]
+          (cond
+            (= c 9)                      (recur (inc i) (* 8 (inc (quot col 8))))
+            (or (= c 32) (<= 10 c 13))   (recur (inc i) (inc col))
+            :else                        col))
+        col))))
+
 (defn- unwrap-text-indexed
   "Unwrap text while preserving original line numbers.
    Returns a vector of {:line string :num original-line-number} maps.
@@ -919,10 +933,12 @@
         done    (fn [current]
                   (if (instance? StringBuilder (:line current))
                     {:line (str (:line current)) :num (:num current)}
-                    current))]
+                    current))
+        numeric? (identical? *list-item-pattern* numeric-list-item-pattern)]
     (loop [result []
            remaining indexed
-           end-pattern nil]               ; set inside a block, environment or drawer
+           end-pattern nil                ; set inside a block, environment or drawer
+           bullets nil]                   ; indents of the enclosing list items, innermost first
       (if (empty? remaining)
         result
         (let [{:keys [line num] :as current} (first remaining)
@@ -932,41 +948,69 @@
             ;; Inside a block, keep lines as they are up to the end line (a
             ;; headline ends an unterminated block, then unwrapping resumes)
             (recur (conj result current) rest-lines
-                   (when-not (re-matches end-pattern line) end-pattern))
-            (if-let [end (or (block-end-pattern line)
-                             ;; A drawer is opaque too, when it is one: left
-                             ;; unterminated, it is a paragraph (see parse-drawer)
-                             (when (and (re-matches drawer-start-pattern line)
-                                        (not (re-matches drawer-end-pattern line))
-                                        (drawer-terminated? rest-lines))
-                               drawer-end-pattern))]
-              (recur (conj result (done current)) rest-lines end)
-              (if (or (nil? next-line) (hard-break? line next-line))
-                (recur (conj result (done current)) rest-lines nil)
-                (let [;; Is the line joined so far a list item? (.matches
-                      ;; tests it without copying the groups.) Once it is,
-                      ;; it stays one while what gets appended has no line
-                      ;; terminator, which . (in the pattern's (.*)$) rejects:
-                      ;; testing the appended text alone keeps this linear.
-                      li?             (if-some [li? (:li? current)]
-                                        li?
-                                        (.matches (re-matcher *list-item-pattern* line)))
-                      trimmed-next    (str/trim next-line)
-                      normalized-next (if li?
-                                        (str/replace trimmed-next #"\s+" " ")
-                                        trimmed-next)
-                      ^StringBuilder sb (if (instance? StringBuilder line)
-                                          line
-                                          (StringBuilder. ^String line))]
-                  (.append sb " ")
-                  (.append sb ^String normalized-next)
-                  (recur result
-                         (cons {:line sb :num num
-                                :li? (if li?
-                                       (.matches (re-matcher #".*" normalized-next))
-                                       (.matches (re-matcher *list-item-pattern* sb)))}
-                               (rest rest-lines))
-                         nil))))))))))
+                   (when-not (re-matches end-pattern line) end-pattern)
+                   bullets)
+            (let [fc      (when (pos? (.length ^CharSequence line))
+                            (.charAt ^CharSequence line 0))
+                  ;; A line starting with a letter is plain text (unless
+                  ;; letters are bullets): spare it the regexes below
+                  plain?  (and numeric? fc (Character/isLetter (char fc)))
+                  ;; Is the line (joined so far) a list item? (.matches
+                  ;; tests it without copying the groups.) Never with a
+                  ;; star in column 0, which makes a headline.
+                  li?     (cond
+                            (some? (:li? current))          (:li? current)
+                            (or plain? (nil? fc) (= fc \*)) false
+                            :else (.matches (re-matcher *list-item-pattern* line)))
+                  ;; The items still open after this line: one indented no
+                  ;; more than a bullet ends that item, two blank lines end
+                  ;; them all.
+                  bullets (cond
+                            (and (not li?) (nil? bullets)) nil
+                            (str/blank? line) (when-not (or (nil? next-line) (str/blank? next-line))
+                                                bullets)
+                            :else (let [indent (leading-indent line)
+                                        open   (loop [b bullets]
+                                                 (if (and b (>= (long (first b)) indent))
+                                                   (recur (next b))
+                                                   b))]
+                                    (if li? (cons indent open) open)))]
+              (if-let [end (when-not plain?
+                             (or (block-end-pattern line)
+                                 ;; A drawer is opaque too, when it is one: left
+                                 ;; unterminated, it is a paragraph (see parse-drawer)
+                                 (when (and (re-matches drawer-start-pattern line)
+                                            (not (re-matches drawer-end-pattern line))
+                                            (drawer-terminated? rest-lines))
+                                   drawer-end-pattern)))]
+                (recur (conj result (done current)) rest-lines end bullets)
+                (if (or (nil? next-line) (hard-break? line next-line)
+                        ;; Not a continuation line: it is not indented past
+                        ;; the bullet of the item it follows
+                        (and bullets
+                             (<= (leading-indent next-line) (long (first bullets)))))
+                  (recur (conj result (done current)) rest-lines nil bullets)
+                  (let [trimmed-next    (str/trim next-line)
+                        normalized-next (if li?
+                                          (str/replace trimmed-next #"\s+" " ")
+                                          trimmed-next)
+                        ^StringBuilder sb (if (instance? StringBuilder line)
+                                            line
+                                            (StringBuilder. ^String line))]
+                    (.append sb " ")
+                    (.append sb ^String normalized-next)
+                    (recur result
+                           ;; A list item stays one while what gets appended
+                           ;; has no line terminator, which . (in the
+                           ;; pattern's (.*)$) rejects: testing the appended
+                           ;; text alone keeps this linear.
+                           (cons {:line sb :num num
+                                  :li? (if li?
+                                         (.matches (re-matcher #".*" normalized-next))
+                                         (.matches (re-matcher *list-item-pattern* sb)))}
+                                 (rest rest-lines))
+                           nil
+                           bullets)))))))))))
 
 
 ;; Parsing Helpers
@@ -1191,11 +1235,6 @@
     :ordered
     marker))
 
-(defn- leading-indent
-  "Count leading whitespace characters on a line."
-  [^String line]
-  (count (re-find #"^\s*" line)))
-
 (defn- collect-list-item-body
   "Collect continuation lines for a list item until we hit another list item,
    a headline, or a non-indented line (outside of blocks). Returns [indexed-lines remaining].
@@ -1325,7 +1364,7 @@
         ;; builds the sublist.
         sibling            (fn [line]
                              (when-let [[indent marker :as m] (list-item-match line)]
-                               (when (and (= (count indent) initial-indent)
+                               (when (and (= (leading-indent indent) initial-indent)
                                           (= (normalize-marker marker) normalized-initial))
                                  m)))]
     (loop [[{:keys [line ltype num]} & more :as remaining] indexed-lines
@@ -1354,7 +1393,7 @@
 (defn- process-list [indexed-lines]
   (let [{:keys [line num]} (first indexed-lines)]
     (if-let [[_ indent marker _] (re-matches *list-item-pattern* line)]
-      (let [initial-indent     (count indent)
+      (let [initial-indent     (leading-indent indent)
             [items rest-lines] (parse-list-items indexed-lines initial-indent marker)
             ordered            (ordered-marker? marker)
             is-description     (boolean (some :term items))]

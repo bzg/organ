@@ -1318,6 +1318,33 @@
                   ":NOTE:\none two"
                   (-> (organ/parse-org ":NOTE:\none\ntwo") :children first :content organ/inline-text))
 
+         ;; --- A line not indented past the bullet ends the item, unwrapped or not ---
+         (assert= "text right after a list is not joined to its last item"
+                  (repeat 2 [[:list :paragraph] "item" "not part of the list at all"])
+                  (for [opts [{} {:unwrap? false}]]
+                    (let [[l p :as nodes] (:children (organ/parse-org "- item\nnot part of the list\nat all" opts))]
+                      [(mapv :type nodes)
+                       (str/replace (organ/inline-text (-> l :items first :content)) "\n" " ")
+                       (str/replace (organ/inline-text (:content p)) "\n" " ")])))
+
+         (assert= "text after a sublist goes back to the outer item"
+                  ["b" [:list :paragraph] "back to a still a" "c"]
+                  (let [[a c] (-> (organ/parse-org "- a\n  - b\n  back to a\n  still a\n- c") :children first :items)]
+                    [(-> a :children first :items first :content organ/inline-text)
+                     (mapv :type (:children a))
+                     (-> a :children second :content organ/inline-text)
+                     (organ/inline-text (:content c))]))
+
+         (assert= "after two blank lines, an indented paragraph is unwrapped freely"
+                  "indented and back"
+                  (-> (organ/parse-org "- a\n\n\n  indented\nand back") :children second :content organ/inline-text))
+
+         (assert= "a tab indents a continuation line up to column 8"
+                  ["one two" [:list]]
+                  (let [nodes (:children (organ/parse-org "      1. one\n\t two"))]
+                    [(-> nodes first :items first :content organ/inline-text)
+                     (mapv :type nodes)]))
+
          ;; --- Test from test.org file if available ---
          (let [test-file "test/bzg/test.org"]
            (if (.exists (java.io.File. test-file))
