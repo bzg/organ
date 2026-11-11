@@ -21,7 +21,8 @@ Text fields keep raw Org markup; rendering is left to consumers (see
 
 The preamble (=#+KEY: value= lines before the first content line) is
 exposed as =:meta=, an array map in file order keyed by lower-cased
-keywords; a repeated keyword holds a vector. A =#+KEY: value= line later
+keywords; a repeated keyword holds a vector. Comment lines and a leading
+property drawer do not end the preamble. A =#+KEY: value= line later
 in the body becomes a ={:type :keyword :key "todo" :value "..."}= node.
 Both can be re-emitted verbatim.
 

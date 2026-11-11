@@ -1283,6 +1283,24 @@
                     [(count (organ/parse-inline (str "see [[ " long-text)))
                      (count (organ/parse-inline (str "[[u][" long-text "]] end")))]))
 
+         ;; --- Comments and a property drawer do not end the preamble ---
+         (assert= "preamble after a mode-line comment"
+                  ["Foo" {:title "Foo" :author "me"} [:comment :paragraph]]
+                  (let [ast (organ/parse-org "# -*- mode: org -*-\n#+TITLE: Foo\n#+AUTHOR: me\n\nText")]
+                    [(organ/inline-text (:title ast)) (:meta ast) (mapv :type (:children ast))]))
+
+         (assert= "preamble after a document property drawer (org-roam)"
+                  ["Note" [:property-drawer :paragraph] {:id "abc"}]
+                  (let [ast (organ/parse-org ":PROPERTIES:\n:ID: abc\n:END:\n#+title: Note\n\nText")]
+                    [(organ/inline-text (:title ast))
+                     (mapv :type (:children ast))
+                     (-> ast :children first :properties)]))
+
+         (assert= "comments separated by a blank line stay separate"
+                  [[:comment :comment :paragraph] {:title "T"}]
+                  (let [ast (organ/parse-org "# a\n\n# b\n#+TITLE: T\nText")]
+                    [(mapv :type (:children ast)) (:meta ast)]))
+
          ;; --- Test from test.org file if available ---
          (let [test-file "test/bzg/test.org"]
            (if (.exists (java.io.File. test-file))

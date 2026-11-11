@@ -1075,32 +1075,49 @@
                        [k (if (= 1 (count vs)) (first vs) vs)]))
                    (distinct (map first kvs))))))
 
+(declare ^:private parse-property-drawer)
+
 (defn- parse-metadata
   "Parse the document preamble: every #+KEY: value line before the first
    content line, whatever the keyword (#+TITLE:, #+TODO:, #+STARTUP:,
    #+HTML_HEAD:, ...), so consumers can re-emit it. Returns [meta remaining],
    meta mapping lower-cased keywords to values in file order (see kvs->meta).
-   Blank lines are skipped. Content directives (#+html:, #+latex:, #+BEGIN_*)
-   and affiliated keywords (#+caption:, #+name:, #+attr_*: — they belong to
+   Blank lines are skipped. Comment lines (# -*- mode: org -*-) and one
+   property drawer (the document's, as org-roam writes it) do not end the
+   preamble: they are handed back at the head of remaining, to be parsed
+   as content. Content directives (#+html:, #+latex:, #+BEGIN_*) and
+   affiliated keywords (#+caption:, #+name:, #+attr_*: — they belong to
    the next element) end the preamble, as does any other line."
   [indexed-lines]
-  (loop [[{:keys [line] :as l} & more :as remaining] indexed-lines
-         kvs []]
-    (cond
-      (nil? l)
-      [(kvs->meta kvs) remaining]
+  (loop [[{:keys [line ltype] :as l} & more :as remaining] indexed-lines
+         kvs     []
+         skipped []                       ; comments, the drawer, blanks between
+         drawer? false]
+    (let [end #(vector (kvs->meta kvs) (concat skipped remaining))]
+      (cond
+        (nil? l)
+        (end)
 
-      (str/blank? line)
-      (recur more kvs)
+        (= ltype :blank)
+        (recur more kvs (cond-> skipped (seq skipped) (conj l)) drawer?)
 
-      (or (html-line? line) (latex-line? line) (block-begin? line)
-          (affiliated-keyword? line))
-      [(kvs->meta kvs) remaining]
+        (= ltype :comment)
+        (recur more kvs (conj skipped l) drawer?)
 
-      :else
-      (if-let [[_ key value] (re-matches metadata-pattern line)]
-        (recur more (conj kvs [(keyword (str/lower-case key)) (str/trim value)]))
-        [(kvs->meta kvs) remaining]))))
+        (= ltype :property-drawer-start)
+        (if-let [[_ after] (and (not drawer?) (parse-property-drawer remaining))]
+          (let [n (- (count remaining) (count after))]
+            (recur after kvs (into skipped (take n remaining)) true))
+          (end))
+
+        (or (html-line? line) (latex-line? line) (block-begin? line)
+            (affiliated-keyword? line))
+        (end)
+
+        :else
+        (if-let [[_ key value] (re-matches metadata-pattern line)]
+          (recur more (conj kvs [(keyword (str/lower-case key)) (str/trim value)]) skipped drawer?)
+          (end))))))
 
 (defn- parse-property-drawer
   "Parse a :PROPERTIES: drawer at the head of indexed-lines.
