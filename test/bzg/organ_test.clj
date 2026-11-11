@@ -1419,6 +1419,11 @@
                   (let [nodes (:children (organ/parse-org ": a\n:\n:   b"))]
                     [(mapv :type nodes) (:content (first nodes))]))
 
+         ;; --- \name{} is the entity, braces consumed ---
+         (assert= "entities closed by {}"
+                  "a αb, πr, a b and ⇒ c \\alphabet{}"
+                  (organ/inline-text (organ/parse-inline "a \\alpha{}b, \\pi{}r, a\\nbsp{}b and \\rArr{} c \\alphabet{}")))
+
          ;; --- Test from test.org file if available ---
          (let [test-file "test/bzg/test.org"]
            (if (.exists (java.io.File. test-file))

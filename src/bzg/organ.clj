@@ -618,7 +618,7 @@
    "\\dagger" "†"
    "\\ddagger" "‡"
    "\\bull" "•"
-   "\\nbsp{}" "\u00A0"
+   "\\nbsp" "\u00A0"
    "\\amp" "&"
    "\\lt" "<"
    "\\gt" ">"
@@ -626,18 +626,20 @@
 
 (def ^:private entity-pattern
   "Pre-compiled regex alternation of all org entity keys, sorted by descending length for safe matching.
-   Entities only match when NOT followed by an alphabetic character (Org mode convention)."
+   An entity ends with {} (which it consumes: \\alpha{}s) or where no
+   alphabetic character follows (Org mode convention)."
   (->> (keys org-entities)
        (sort-by (comp - count))
-       (map #(str (java.util.regex.Pattern/quote %) "(?![a-zA-Z])"))
+       (map #(str (java.util.regex.Pattern/quote %) "(?:\\{\\}|(?![a-zA-Z]))"))
        (str/join "|")
        re-pattern))
 
 (defn- replace-entities
-  "Replace Org entities (\\name) with their Unicode equivalents in a single pass."
+  "Replace Org entities (\\name or \\name{}) with their Unicode equivalents in a single pass."
   [text]
   (if (str/includes? text "\\")
-    (str/replace text entity-pattern #(get org-entities % %))
+    (str/replace text entity-pattern
+                 #(get org-entities (if (str/ends-with? % "{}") (subs % 0 (- (count %) 2)) %) %))
     text))
 
 ;; Inline Parsing
