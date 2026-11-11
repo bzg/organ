@@ -54,7 +54,9 @@
 (def ^:private property-drawer-start-pattern #"(?i)^\s*:PROPERTIES:\s*$")
 (def ^:private drawer-start-pattern #"^\s*:([A-Za-z][\w_-]*?):\s*$")
 (def ^:private drawer-end-pattern #"(?i)^\s*:END:\s*$")
-(def ^:private property-pattern #"^\s*:([\w_-]+):\s*(.*)$")
+;; As in Org, a property name is any run of non-blank characters
+;; (:header-args+:, :Foo.Bar:), closed by a colon then a blank or the end.
+(def ^:private property-pattern #"^\s*:(\S+):(?:\s+(.*))?$")
 (def ^:private numeric-list-item-pattern
   #"^(\s*)(-|\+|\*|\d+[.)])\s+(.*)$")
 (def ^:private alphabetical-list-item-pattern
@@ -1187,7 +1189,7 @@
 
         :else
         (if-let [[_ key value] (re-matches property-pattern line)]
-          (recur more (assoc properties (keyword (str/lower-case key)) (str/trim value)))
+          (recur more (assoc properties (keyword (str/lower-case key)) (str/trim (or value ""))))
           (recur more properties))))
     [{} indexed-lines]))
 

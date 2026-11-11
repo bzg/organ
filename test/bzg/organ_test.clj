@@ -1351,6 +1351,12 @@
                   (let [[a b] (:children (organ/parse-org "* A\n:properties:\n:id: abc\n:end:\nText\n* B\n:PROPERTIES:\n:ID: def\n:end:"))]
                     [(:properties a) (mapv :type (:children a)) (:properties b)]))
 
+         ;; --- Property names are any non-blank run (header-args+, Foo.Bar) ---
+         (assert= "property names with + and ."
+                  {:header-args+ ":x y" :foo.bar "1" :header-args:python ":session s" :empty ""}
+                  (-> (organ/parse-org "* H\n:PROPERTIES:\n:header-args+: :x y\n:Foo.Bar: 1\n:header-args:python: :session s\n:EMPTY:\n:END:")
+                      :children first :properties))
+
          ;; --- Test from test.org file if available ---
          (let [test-file "test/bzg/test.org"]
            (if (.exists (java.io.File. test-file))
