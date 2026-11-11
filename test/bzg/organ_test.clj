@@ -1357,6 +1357,13 @@
                   (-> (organ/parse-org "* H\n:PROPERTIES:\n:header-args+: :x y\n:Foo.Bar: 1\n:header-args:python: :session s\n:EMPTY:\n:END:")
                       :children first :properties))
 
+         ;; --- Attribute values run up to the next :key, as in Org ---
+         (assert= "multi-word, quoted, dashed and valueless attributes"
+                  {:style "color: red; width: 50%" :alt "A nice image" :data-x "1" :title "" :class "a b"}
+                  (-> (organ/parse-org (str "#+ATTR_HTML: :style color: red; width: 50% :alt \"A nice image\""
+                                            " :controls :data-x 1 :title \"\" :class a b\n[[file:x.png]]"))
+                      :children first :affiliated :attr :html))
+
          ;; --- Test from test.org file if available ---
          (let [test-file "test/bzg/test.org"]
            (if (.exists (java.io.File. test-file))

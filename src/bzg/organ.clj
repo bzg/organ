@@ -1020,23 +1020,26 @@
     {:label label :content content}))
 
 (defn- parse-attr-string
-  "Parse an Org attribute string like ':width 300 :alt \"An image\" :class my-class'
-   into a map {:width \"300\" :alt \"An image\" :class \"my-class\"}"
+  "Parse an Org attribute string like ':width 300 :alt \"An image\" :class a b'
+   into a map {:width \"300\" :alt \"An image\" :class \"a b\"}. As in Org
+   (org-export-read-attribute), a value runs up to the next :key and may
+   hold several words; a key without a value is dropped. Quotes around a
+   whole value are removed."
   [s]
   (when (non-blank? s)
-    (loop [remaining (str/trim s)
-           result {}]
-      (if (str/blank? remaining)
-        result
-        ;; Match :key followed by either "quoted value" or unquoted-value
-        (if-let [[_ key quoted unquoted rest]
-                 (re-matches #"^:(\w+)\s+(?:\"([^\"]*)\"|(\S+))(.*)$" remaining)]
-          (recur (str/trim rest)
-                 (assoc result (keyword key) (or quoted unquoted)))
-          ;; No match, skip to next potential key or end
-          (if-let [[_ rest] (re-matches #"^\S+\s*(.*)$" remaining)]
-            (recur rest result)
-            result))))))
+    (let [m   (re-matcher #"(?:^|\s+):([-\w]+)(?=\s|$)" s)
+          add (fn [result k ^long start ^long end]
+                (let [v          (str/trim (subs s start end))
+                      [_ quoted] (re-matches #"\"([^\"]*)\"" v)]
+                  (cond
+                    (nil? k)       result
+                    quoted         (assoc result (keyword k) quoted)
+                    (str/blank? v) result
+                    :else          (assoc result (keyword k) v))))]
+      (loop [result {} k nil start 0]
+        (if (.find m)
+          (recur (add result k start (.start m)) (.group m 1) (.end m))
+          (add result k start (count s)))))))
 
 (defn- parse-affiliated-keywords
   "Collect consecutive affiliated keyword lines (#+attr_html, #+caption, etc.)
