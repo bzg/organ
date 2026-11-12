@@ -1468,6 +1468,29 @@
                      (mapv #(mapv :type (:children %)) items)
                      (mapv :type (:children (organ/parse-org "a star\n*\nalone")))]))
 
+         ;; --- Escaped brackets in a link path (checked against org-element) ---
+         (let [target "*with an [[file:a.org::*a guide][some guide]]"]
+           (assert= "link to a heading that holds a link"
+                    [{:type :text :value "and "}
+                     {:type :link :url target :link-type :heading :target (subs target 1)
+                      :children [{:type :text :value "the previous heading"}]}]
+                    (organ/parse-inline
+                     "and [[*with an \\[\\[file:a.org::*a guide\\]\\[some guide\\]\\]][the previous heading]]")))
+
+         (assert= "link path: backslashes before a bracket or the end"
+                  ["a]b" "file:x[1].org" "a\\" "a\\]b" "a\\b" "a\\"]
+                  (mapv #(:url (first (organ/parse-inline %)))
+                        ["[[a\\]b]]" "[[file:x\\[1\\].org][d]]" "[[a\\\\]]"
+                         "[[a\\\\\\]b]]" "[[a\\b]]" "[[a\\\\][d]]"]))
+
+         (assert= "link path: an escaped bracket does not close it"
+                  [{:type :text :value "[[a\\]]"}]
+                  (organ/parse-inline "[[a\\]]"))
+
+         (assert= "link description: backslashes are kept"
+                  "d\\]e"
+                  (organ/inline-text (:children (first (organ/parse-inline "[[a][d\\]e]]")))))
+
          ;; --- Macros (expected values checked against org-element) ---
          (assert= "macro without arguments"
                   [{:type :macro :name "my-macro" :args [] :raw "{{{my-macro}}}"}]

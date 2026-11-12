@@ -713,8 +713,30 @@
       ;; re-groups is compiled into bb, unlike a loop over the groups
       (re-groups m))))
 
-(defn- link-node [url description]
-  (let [{:keys [link-type target]} (classify-link-url url)]
+(defn- unescape-link
+  "Remove the backslashes escaping a link path, as org-link-unescape
+   does: before a bracket or the end of the path, two backslashes stand
+   for one and a single one is dropped."
+  [^String path]
+  (if (neg? (.indexOf path "\\"))
+    path
+    (str/replace path #"(\\+)(?=[\[\]]|\z)"
+                 (fn [[_ bs]] (subs bs 0 (quot (count bs) 2))))))
+
+(defn- link-path-end
+  "Index of the ] closing the link path that starts at `from`: the first
+   one not escaped by an odd number of backslashes; nil without one."
+  [^String text ^long from]
+  (loop [j (.indexOf text "]" (int from))]
+    (when-not (neg? j)
+      (if (odd? (loop [k (dec j) n 0]
+                  (if (= (.charAt text k) \\) (recur (dec k) (inc n)) n)))
+        (recur (.indexOf text "]" (int (inc j))))
+        j))))
+
+(defn- link-node [path description]
+  (let [url (unescape-link path)
+        {:keys [link-type target]} (classify-link-url url)]
     (cond-> {:type :link :url url}
       description (assoc :children (do-parse-inline description))
       link-type   (assoc :link-type link-type)
@@ -722,13 +744,13 @@
 
 (defn- try-parse-link
   "Parse the link opened by [[ at position i: [[url][description]] or
-   [[url]], closed by the first ]] found. Scanned with indexOf: a regex
+   [[url]], closed by the first ]] found. In the url, a backslash escapes
+   a bracket (see link-path-end). Scanned with indexOf: a regex
    alternation repeated over the link text recurses once per character
    and overflows the stack on a long paragraph with an unclosed [[."
   [^String text ^long i]
-  (let [start (+ i 2)
-        j     (.indexOf text "]" (int start))]
-    (when-not (neg? j)
+  (let [start (+ i 2)]
+    (when-let [j (link-path-end text start)]
       (if (and (< (inc j) (.length text)) (= (.charAt text (inc j)) \[))
         (let [k (.indexOf text "]]" (int (+ j 2)))]
           (when-not (neg? k)
