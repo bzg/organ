@@ -1468,7 +1468,7 @@
                      (mapv #(mapv :type (:children %)) items)
                      (mapv :type (:children (organ/parse-org "a star\n*\nalone")))]))
 
-         ;; --- Macros ---
+         ;; --- Macros (expected values checked against org-element) ---
          (assert= "macro without arguments"
                   [{:type :macro :name "my-macro" :args [] :raw "{{{my-macro}}}"}]
                   (organ/parse-inline "{{{my-macro}}}"))
@@ -1512,6 +1512,18 @@
                         ["{{{1}}}" "{{{-a}}}" "{{{m(a}}}" "{{{m" "{{{m }}}" "x {{{ y {z}"])
                   (mapv organ/parse-inline
                         ["{{{1}}}" "{{{-a}}}" "{{{m(a}}}" "{{{m" "{{{m }}}" "x {{{ y {z}"]))
+
+         (assert= "macro inside an extra pair of braces"
+                  [{:type :text :value "{"}
+                   {:type :macro :name "a" :args [] :raw "{{{a}}}"}
+                   {:type :text :value "}"}]
+                  (organ/parse-inline "{{{{a}}}}"))
+
+         (assert= "macro in emphasis and link description, not in verbatim"
+                  [:verbatim :text [:bold [:text :macro]] :text [:link [:macro]]]
+                  (mapv #(if-let [c (:children %)] [(:type %) (mapv :type c)] (:type %))
+                        (organ/parse-inline
+                         "=v {{{a}}}= *b {{{a(1)}}}* [[u][{{{d}}}]]")))
 
          (let [text "A {{{m(a\\,b, c)}}} and {{{T}}}."]
            (assert= "inline-text gives a macro call back as written"
