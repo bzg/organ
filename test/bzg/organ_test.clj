@@ -1478,6 +1478,10 @@
                     :raw "{{{my-macro(1,2)}}}"}]
                   (organ/parse-inline "{{{my-macro(1,2)}}}"))
 
+         (assert= "macro name is lower-cased, :raw keeps the case"
+                  [{:type :macro :name "a_b-c" :args ["x"] :raw "{{{A_b-C(x)}}}"}]
+                  (organ/parse-inline "{{{A_b-C(x)}}}"))
+
          (let [macro (first (organ/parse-inline "{{{my-macro(1,2\\,3)}}}"))]
            (assert= "macro arguments with comma" ["1" "2,3"] (:args macro)))
 
@@ -1491,6 +1495,12 @@
                    {:type :macro :name "second-macro" :args ["2"] :raw "{{{second-macro(2)}}}"}
                    {:type :text :value ")}}}"}]
                   (organ/parse-inline "{{{my-macro((1))}}} {{{second-macro(2)}}})}}}"))
+
+         (assert= "not macros: bad name, unclosed, spaces"
+                  (mapv #(vector {:type :text :value %})
+                        ["{{{1}}}" "{{{-a}}}" "{{{m(a}}}" "{{{m" "{{{m }}}" "x {{{ y {z}"])
+                  (mapv organ/parse-inline
+                        ["{{{1}}}" "{{{-a}}}" "{{{m(a}}}" "{{{m" "{{{m }}}" "x {{{ y {z}"]))
 
          (let [text "A {{{m(a\\,b, c)}}} and {{{T}}}."]
            (assert= "inline-text gives a macro call back as written"
