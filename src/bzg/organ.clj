@@ -824,14 +824,22 @@
                           (if (even? (count bs)) "\u0000" ","))))
       (str/split #"\u0000" -1)))
 
-(defn- try-parse-macro [text i]
-  (when-let [[full macro-name args]
-             (re-find-at #"(?s)^\{\{\{([a-zA-Z][-a-zA-Z0-9_]*)(?:\((.*?)\))?\}\}\}" text i)]
-    [{:type :macro
-      :name (str/lower-case macro-name)
-      :args (if args (macro-args args) [])
-      :raw  full}
-     (+ i (count full))]))
+(defn- try-parse-macro
+  "Parse the macro call at position i: {{{name}}} or {{{name(args)}}},
+   the arguments running up to the first )}}}. Macros are not expanded:
+   :raw keeps the call as written."
+  [^String text ^long i]
+  (when-let [[head macro-name paren]
+             (re-find-at #"^\{\{\{([a-zA-Z][-a-zA-Z0-9_]*)(?:(\()|\}\}\})" text i)]
+    (let [start (+ i (count head))
+          close (if paren (.indexOf text ")}}}" (int start)) start)]
+      (when-not (neg? close)
+        (let [end (if paren (+ close 4) close)]
+          [{:type :macro
+            :name (str/lower-case macro-name)
+            :args (if paren (macro-args (subs text start close)) [])
+            :raw  (subs text i end)}
+           end])))))
 
 (def ^:private inline-special-pattern
   "Characters that can start an inline node: links, footnotes and inactive
@@ -849,9 +857,7 @@
   (let [len (.length text)]
     (cond
       ;; macro: {{{
-      (and (= c \{) (< (+ 2 i) len)
-           (= (.charAt text (inc i)) \{)
-           (= (.charAt text (+ 2 i)) \{))
+      (and (= c \{) (.startsWith text "{{{" i))
       (try-parse-macro text i)
 
       ;; Link: [[
