@@ -809,12 +809,19 @@
                  (match-latex-fragment text i latex-dollar-pattern  :dollar))))
     nil))
 
+(defn- try-parse-macro [text i]
+  (when-let [[full macro-name args] (re-find-at #"^\{\{\{([\w\-]+)(?:\((.+?)\))?\}\}\}" text i)]
+    [(cond-> {:type :macro :args [] :name macro-name}
+         args (assoc :args (mapv #(str/replace % #"\\," ",")
+                                 (str/split args #"(?<!\\),"))))
+       (+ i (count full))]))
+
 (def ^:private inline-special-pattern
   "Characters that can start an inline node: links, footnotes and inactive
    timestamps ([), active timestamps (<), emphasis (* / _ +), literals (~ =),
-   LaTeX fragments (\\ $). Plain text between two special characters is
+   LaTeX fragments (\\ $), macros ({). Plain text between two special characters is
    copied in a single step, which keeps the scan at host speed under SCI."
-  #"[\[<*/_+~=$\\]")
+  #"[\[{<*/_+~=$\\]")
 
 (declare ^:private do-parse-inline)
 
@@ -824,6 +831,12 @@
   [^String text ^long i c]
   (let [len (.length text)]
     (cond
+      ;; macro: {{{
+      (and (= c \{) (< (+ 2 i) len)
+           (= (.charAt text (inc i)) \{)
+           (= (.charAt text (+ 2 i)) \{))
+      (try-parse-macro text i)
+
       ;; Link: [[
       (and (= c \[) (< (inc i) len) (= (.charAt text (inc i)) \[))
       (try-parse-link text i)

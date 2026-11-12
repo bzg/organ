@@ -6,6 +6,7 @@
 #+EMAIL: test@example.com
 #+LANGUAGE: en
 #+OPTIONS: toc:t num:t H:3
+#+MACRO: rb @@html:<ruby>$1<rt>$2</rt></ruby>@@
 
 Some top-level paragraph with *bold*, /italic/, _underline_,
 +strikethrough+, ~code~, and =verbatim= markup.
@@ -149,6 +150,18 @@ An internal link to [[#second-section]].
 
 # This is a comment.
 # Second comment line.
+
+* Macros
+
+Paragraph with macros {{{rb(漢,kan)}}} {{{rb(字,(ji))}}} {{{rb(漢\,字,kan\,ji)}}}
+
+** {{{rb(Hello,Bonjour)}}}
+
+ - {{{rb(one,un)}}}
+ - {{{rb(two,deux)}}}
+
+#+caption: table with macro {{{rb(alfa)}}}
+| {{{title}}} | {{{author}}} |
 
 * Footnotes
 
