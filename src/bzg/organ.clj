@@ -810,10 +810,10 @@
     nil))
 
 (defn- try-parse-macro [text i]
-  (when-let [[full macro-name args] (re-find-at #"^\{\{\{([a-zA-Z][-a-zA-Z0-9_]*)(?:\((.+?)\))?\}\}\}" text i)]
+  (when-let [[full macro-name args] (re-find-at #"^\{\{\{([a-zA-Z][-a-zA-Z0-9_]*)(?:\((.*?)\))?\}\}\}" text i)]
     [(cond-> {:type :macro :name (str/lower-case macro-name) :args [] :raw full}
          args (assoc :args (mapv #(str/replace % #"\\," ",")
-                                 (str/split args #"(?<!\\),"))))
+                                 (str/split args #"(?<!\\)," -1))))
        (+ i (count full))]))
 
 (def ^:private inline-special-pattern

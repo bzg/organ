@@ -1485,6 +1485,11 @@
          (let [macro (first (organ/parse-inline "{{{my-macro(1,2\\,3)}}}"))]
            (assert= "macro arguments with comma" ["1" "2,3"] (:args macro)))
 
+         (assert= "macro arguments: empty ones are kept"
+                  [[""] ["a" ""] ["" ""] []]
+                  (mapv #(:args (first (organ/parse-inline %)))
+                        ["{{{m()}}}" "{{{m(a,)}}}" "{{{m(,)}}}" "{{{m}}}"]))
+
          (assert= "macro with parens in argument"
                   ["(with parens)"]
                   (:args (first (organ/parse-inline "{{{my-macro((with parens))}}}"))))
