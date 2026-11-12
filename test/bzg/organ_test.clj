@@ -1482,8 +1482,10 @@
                   [{:type :macro :name "a_b-c" :args ["x"] :raw "{{{A_b-C(x)}}}"}]
                   (organ/parse-inline "{{{A_b-C(x)}}}"))
 
-         (let [macro (first (organ/parse-inline "{{{my-macro(1,2\\,3)}}}"))]
-           (assert= "macro arguments with comma" ["1" "2,3"] (:args macro)))
+         (assert= "macro arguments: escaped commas and backslashes"
+                  ["a,b" "c\\" "d\\,e"]
+                  (:args (first (organ/parse-inline
+                                 "{{{m(a\\,b,c\\\\,d\\\\\\,e)}}}"))))
 
          (assert= "macro arguments: empty ones are kept"
                   [[""] ["a" ""] ["" ""] []]

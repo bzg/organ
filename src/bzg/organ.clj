@@ -810,14 +810,19 @@
     nil))
 
 (defn- macro-args
-  "Split the text between the parentheses of a macro call into its
-   arguments, as Org does: surrounding blanks are dropped, inner runs of
-   blanks become one space. Empty arguments are kept."
+  "Split the text between the parentheses of a macro call as Org does
+   (org-macro-extract-arguments): blanks are trimmed around and collapsed
+   inside, a comma separates two arguments unless an odd number of
+   backslashes precedes it, and two backslashes before a comma stand
+   for one. Empty arguments are kept."
   [s]
-  (mapv #(str/replace % #"\\," ",")
-        (-> (str/replace s #"[ \t\r\n]+" " ")
-            (str/replace #"^ | $" "")
-            (str/split #"(?<!\\)," -1))))
+  (-> (str/replace s #"[ \t\r\n]+" " ")
+      (str/replace #"^ | $" "")
+      (str/replace #"(\\*),"
+                   (fn [[_ bs]]
+                     (str (subs bs 0 (quot (count bs) 2))
+                          (if (even? (count bs)) "\u0000" ","))))
+      (str/split #"\u0000" -1)))
 
 (defn- try-parse-macro [text i]
   (when-let [[full macro-name args]
