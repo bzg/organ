@@ -75,7 +75,7 @@ drop it (=:omit=) or decide link by link:
 As a Clojure CLI dependency:
 
 #+begin_src clojure
-org.clojars.bzg/organ {:mvn/version "3.5.1"}
+org.clojars.bzg/organ {:mvn/version "3.6.0"}
 #+end_src
 
 Works with both Clojure and [[https://babashka.org][Babashka]] (no external deps).
