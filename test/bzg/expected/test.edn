@@ -1,12 +1,13 @@
 {:title [{:type :text, :value "Test Document"}],
  :meta
- {:email "test@example.com",
-  :date "2025-01-15",
-  :title "Test Document",
+ {:title "Test Document",
   :author ["Test Author" "Second Author"],
-  :language "en",
+  :date "2025-01-15",
   :subtitle "A Comprehensive Test",
+  :email "test@example.com",
+  :language "en",
   :options "toc:t num:t H:3"},
+ :todo-keywords {:todo ["TODO"], :done ["DONE"]},
  :children
  [{:content
    [{:type :text, :value "Some top-level paragraph with "}
@@ -144,11 +145,13 @@
              :line 49,
              :type :list-item}],
            :ordered false,
+           :description false,
            :line 48,
            :type :list}],
          :line 47,
          :type :list-item}],
        :ordered false,
+       :description false,
        :line 45,
        :type :list}],
      :type :section}
@@ -170,6 +173,7 @@
          :line 55,
          :type :list-item}],
        :ordered true,
+       :description false,
        :line 53,
        :type :list}],
      :type :section}
@@ -196,7 +200,7 @@
          :line 61,
          :type :list-item}],
        :ordered false,
-       :description [{:type :text, :value "Emacs"}],
+       :description true,
        :line 59,
        :type :list}],
      :type :section}],
