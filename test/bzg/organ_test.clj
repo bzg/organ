@@ -1490,6 +1490,10 @@
                   (mapv #(:args (first (organ/parse-inline %)))
                         ["{{{m()}}}" "{{{m(a,)}}}" "{{{m(,)}}}" "{{{m}}}"]))
 
+         (assert= "macro arguments: blanks trimmed around, collapsed inside"
+                  ["a " " b c"]
+                  (:args (first (organ/parse-inline "{{{m( a ,\n b \t c )}}}"))))
+
          (assert= "macro with parens in argument"
                   ["(with parens)"]
                   (:args (first (organ/parse-inline "{{{my-macro((with parens))}}}"))))
@@ -1510,6 +1514,13 @@
          (let [text "A {{{m(a\\,b, c)}}} and {{{T}}}."]
            (assert= "inline-text gives a macro call back as written"
                     text (organ/inline-text (organ/parse-inline text))))
+
+         (assert= "macro over two lines of a paragraph and of a quote block"
+                  [["a" " b"] ["a" " b"]]
+                  [(-> (organ/parse-org "x {{{m(a,\nb)}}}") :children first
+                       :content second :args)
+                   (-> (organ/parse-org "#+begin_quote\nx {{{m(a,\nb)}}}\n#+end_quote")
+                       :children first :children first :content second :args)])
 
          ;; --- test.org against its expected AST ---
          (assert-expected-ast)])]

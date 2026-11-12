@@ -809,12 +809,24 @@
                  (match-latex-fragment text i latex-dollar-pattern  :dollar))))
     nil))
 
+(defn- macro-args
+  "Split the text between the parentheses of a macro call into its
+   arguments, as Org does: surrounding blanks are dropped, inner runs of
+   blanks become one space. Empty arguments are kept."
+  [s]
+  (mapv #(str/replace % #"\\," ",")
+        (-> (str/replace s #"[ \t\r\n]+" " ")
+            (str/replace #"^ | $" "")
+            (str/split #"(?<!\\)," -1))))
+
 (defn- try-parse-macro [text i]
-  (when-let [[full macro-name args] (re-find-at #"^\{\{\{([a-zA-Z][-a-zA-Z0-9_]*)(?:\((.*?)\))?\}\}\}" text i)]
-    [(cond-> {:type :macro :name (str/lower-case macro-name) :args [] :raw full}
-         args (assoc :args (mapv #(str/replace % #"\\," ",")
-                                 (str/split args #"(?<!\\)," -1))))
-       (+ i (count full))]))
+  (when-let [[full macro-name args]
+             (re-find-at #"(?s)^\{\{\{([a-zA-Z][-a-zA-Z0-9_]*)(?:\((.*?)\))?\}\}\}" text i)]
+    [{:type :macro
+      :name (str/lower-case macro-name)
+      :args (if args (macro-args args) [])
+      :raw  full}
+     (+ i (count full))]))
 
 (def ^:private inline-special-pattern
   "Characters that can start an inline node: links, footnotes and inactive
