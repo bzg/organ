@@ -1469,28 +1469,32 @@
                      (mapv :type (:children (organ/parse-org "a star\n*\nalone")))]))
 
          ;; --- Macros ---
-         (let [macro (first (organ/parse-inline "{{{my-macro}}}"))]
-           (assert= "macro without arguments"
-                    {:type :macro :name "my-macro" :args []} macro))
+         (assert= "macro without arguments"
+                  [{:type :macro :name "my-macro" :args [] :raw "{{{my-macro}}}"}]
+                  (organ/parse-inline "{{{my-macro}}}"))
 
-         (let [macro (first (organ/parse-inline "{{{my-macro(1,2)}}}"))]
-           (assert= "macro with arguments"
-                    {:type :macro :name "my-macro" :args ["1" "2"]} macro))
+         (assert= "macro with arguments"
+                  [{:type :macro :name "my-macro" :args ["1" "2"]
+                    :raw "{{{my-macro(1,2)}}}"}]
+                  (organ/parse-inline "{{{my-macro(1,2)}}}"))
 
          (let [macro (first (organ/parse-inline "{{{my-macro(1,2\\,3)}}}"))]
            (assert= "macro arguments with comma" ["1" "2,3"] (:args macro)))
 
-         (let [macro (first (organ/parse-inline "{{{my-macro((with parens))}}}"))]
-           (assert= "macro with parens in argument"
-                    {:type :macro :name "my-macro" :args ["(with parens)"]} macro))
+         (assert= "macro with parens in argument"
+                  ["(with parens)"]
+                  (:args (first (organ/parse-inline "{{{my-macro((with parens))}}}"))))
 
-         ;; ensure the matching regexp is non greedy
-         (let [[macro1 space macro2] (organ/parse-inline "{{{my-macro((1))}}} {{{second-macro(2)}}}")]
-           [(assert= "first macro"
-                     {:type :macro :name "my-macro" :args ["(1)"]} macro1)
-            (assert= "space between macros" {:type :text, :value " "} space)
-            (assert= "second macro"
-                     {:type :macro, :args ["2"], :name "second-macro"} macro2)])
+         (assert= "macro arguments stop at the first )}}}"
+                  [{:type :macro :name "my-macro" :args ["(1)"] :raw "{{{my-macro((1))}}}"}
+                   {:type :text :value " "}
+                   {:type :macro :name "second-macro" :args ["2"] :raw "{{{second-macro(2)}}}"}
+                   {:type :text :value ")}}}"}]
+                  (organ/parse-inline "{{{my-macro((1))}}} {{{second-macro(2)}}})}}}"))
+
+         (let [text "A {{{m(a\\,b, c)}}} and {{{T}}}."]
+           (assert= "inline-text gives a macro call back as written"
+                    text (organ/inline-text (organ/parse-inline text))))
 
          ;; --- test.org against its expected AST ---
          (assert-expected-ast)])]

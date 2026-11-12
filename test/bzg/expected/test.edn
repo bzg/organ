@@ -442,25 +442,46 @@
    :children
    [{:content
      [{:type :text, :value "Paragraph with macros "}
-      {:type :macro, :args ["漢" "kan"], :name "rb"}
+      {:type :macro,
+       :name "rb",
+       :args ["漢" "kan"],
+       :raw "{{{rb(漢,kan)}}}"}
       {:type :text, :value " "}
-      {:type :macro, :args ["字" "(ji)"], :name "rb"}
+      {:type :macro,
+       :name "rb",
+       :args ["字" "(ji)"],
+       :raw "{{{rb(字,(ji))}}}"}
       {:type :text, :value " "}
-      {:type :macro, :args ["漢,字" "kan,ji"], :name "rb"}],
+      {:type :macro,
+       :name "rb",
+       :args ["漢,字" "kan,ji"],
+       :raw "{{{rb(漢\\,字,kan\\,ji)}}}"}],
      :line 156,
      :type :paragraph}
     {:level 2,
-     :title [{:type :macro, :args ["Hello" "Bonjour"], :name "rb"}],
+     :title
+     [{:type :macro,
+       :name "rb",
+       :args ["Hello" "Bonjour"],
+       :raw "{{{rb(Hello,Bonjour)}}}"}],
      :path ["Macros" "{{{rb(Hello,Bonjour)}}}"],
      :line 158,
      :blank-lines-before 1,
      :blank-lines-after-title 1,
      :children
      [{:items
-       [{:content [{:type :macro, :args ["one" "un"], :name "rb"}],
+       [{:content
+         [{:type :macro,
+           :name "rb",
+           :args ["one" "un"],
+           :raw "{{{rb(one,un)}}}"}],
          :line 160,
          :type :list-item}
-        {:content [{:type :macro, :args ["two" "deux"], :name "rb"}],
+        {:content
+         [{:type :macro,
+           :name "rb",
+           :args ["two" "deux"],
+           :raw "{{{rb(two,deux)}}}"}],
          :line 161,
          :type :list-item}],
        :ordered false,
@@ -468,8 +489,11 @@
        :line 160,
        :type :list}
       {:rows
-       [[[{:type :macro, :args [], :name "title"}]
-         [{:type :macro, :args [], :name "author"}]]],
+       [[[{:type :macro, :name "title", :args [], :raw "{{{title}}}"}]
+         [{:type :macro,
+           :name "author",
+           :args [],
+           :raw "{{{author}}}"}]]],
        :has-header false,
        :line 164,
        :type :table,

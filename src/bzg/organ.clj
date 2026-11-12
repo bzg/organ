@@ -811,7 +811,7 @@
 
 (defn- try-parse-macro [text i]
   (when-let [[full macro-name args] (re-find-at #"^\{\{\{([\w\-]+)(?:\((.+?)\))?\}\}\}" text i)]
-    [(cond-> {:type :macro :args [] :name macro-name}
+    [(cond-> {:type :macro :name macro-name :args [] :raw full}
          args (assoc :args (mapv #(str/replace % #"\\," ",")
                                  (str/split args #"(?<!\\),"))))
        (+ i (count full))]))
@@ -917,6 +917,7 @@
               :code (:value node)
               :verbatim (:value node)
               :timestamp (:raw node)
+              :macro (:raw node)
               :latex-fragment (case (:kind node)
                                 :paren   (str "\\(" (:value node) "\\)")
                                 :bracket (str "\\[" (:value node) "\\]")
