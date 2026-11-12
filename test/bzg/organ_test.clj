@@ -1,6 +1,39 @@
 (ns bzg.organ-test
   (:require [bzg.organ :as organ]
+            [clojure.data :as data]
+            [clojure.edn :as edn]
+            [clojure.pprint :as pprint]
             [clojure.string :as str]))
+
+(def ^:private test-org-file "test/bzg/test.org")
+(def ^:private expected-file "test/bzg/expected/test.edn")
+
+(defn regen-expected
+  "Rewrite the expected AST of test.org from the current parser. Review
+   the diff before staging it: it is the whole point of the file."
+  []
+  (spit expected-file
+        (with-out-str (pprint/pprint (organ/parse-org (slurp test-org-file)))))
+  (println "Wrote" expected-file))
+
+(defn- assert-expected-ast
+  "Compare the AST of test.org with the expected one, printing only what
+   differs. Map order is not compared (see the :meta order test)."
+  []
+  (let [actual   (organ/parse-org (slurp test-org-file))
+        expected (edn/read-string (slurp expected-file))
+        label    "test.org parses to expected/test.edn"]
+    (if (= expected actual)
+      (do (println (str "  OK " label)) :pass)
+      (let [[only-expected only-actual] (data/diff expected actual)]
+        (println (str "FAIL " label))
+        (println "  if intended, rewrite the expected file and review its diff:")
+        (println "  bb -e \"(require 'bzg.organ-test) (bzg.organ-test/regen-expected)\"")
+        (println "  only in expected:")
+        (pprint/pprint only-expected)
+        (println "  only in actual:")
+        (pprint/pprint only-actual)
+        :fail))))
 
 (defn- assert= [label expected actual]
   (if (= expected actual)
@@ -1459,13 +1492,8 @@
             (assert= "second macro"
                      {:type :macro, :args ["2"], :name "second-macro"} macro2)])
 
-         ;; --- Test from test.org file if available ---
-         (let [test-file "test/bzg/test.org"]
-           (if (.exists (java.io.File. test-file))
-             (let [ast (organ/parse-org (slurp test-file))]
-               (assert= "test.org parses as document"
-                        :document (:type ast)))
-             (do (println "  SKIP test.org (not found)") :skip)))])]
+         ;; --- test.org against its expected AST ---
+         (assert-expected-ast)])]
 
     (let [{:keys [pass fail skip]} (merge {:pass 0 :fail 0 :skip 0} (frequencies results))]
       (println (str "\n" pass "/" (count results) " passed"
