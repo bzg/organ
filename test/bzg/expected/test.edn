@@ -357,7 +357,7 @@
      :type :table,
      :affiliated
      {:attr {:html {:width "80%", :class "striped"}},
-      :caption "A captioned table",
+      :caption [{:type :text, :value "A captioned table"}],
       :name "my-table"}}],
    :type :section}
   {:level 1,
@@ -497,7 +497,13 @@
        :has-header false,
        :line 164,
        :type :table,
-       :affiliated {:caption "table with macro {{{rb(alfa)}}}"}}],
+       :affiliated
+       {:caption
+        [{:type :text, :value "table with macro "}
+         {:type :macro,
+          :name "rb",
+          :args ["alfa"],
+          :raw "{{{rb(alfa)}}}"}]}}],
      :type :section}],
    :type :section}
   {:level 1,

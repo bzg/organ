@@ -543,7 +543,7 @@
          ;; --- Affiliated keywords: caption ---
          (let [ast (organ/parse-org "* S\n#+CAPTION: My caption\n| a |\n| 1 |")]
            (assert= "affiliated caption"
-                    "My caption"
+                    [{:type :text :value "My caption"}]
                     (-> ast :children first :children first :affiliated :caption)))
 
          ;; --- Affiliated keywords: name ---
@@ -1129,7 +1129,7 @@
          ;; --- Affiliated keywords before content at document top ---
          (let [ast (organ/parse-org "#+CAPTION: My cap\n| a |\n| 1 |")]
            (assert= "caption at document top"
-                    "My cap"
+                    [{:type :text :value "My cap"}]
                     (-> ast :children first :affiliated :caption)))
 
          ;; --- Stray planning line is kept as a paragraph ---
@@ -1399,7 +1399,7 @@
 
          ;; --- Affiliated keywords with an optional part: #+CAPTION[short]:, #+RESULTS[hash]: ---
          (assert= "short caption and cached results"
-                  [[:paragraph :table] {:caption "long caption"} {:results "tbl"}]
+                  [[:paragraph :table] {:caption [{:type :text :value "long caption"}]} {:results "tbl"}]
                   (let [[p f :as nodes] (:children (organ/parse-org "#+CAPTION[short]: long caption\n[[file:x.png]]\n\n#+RESULTS[abc123]: tbl\n| 42 |"))]
                     [(mapv :type nodes) (:affiliated p) (:affiliated f)]))
 

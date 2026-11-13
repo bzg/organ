@@ -1141,7 +1141,7 @@
 (defn- parse-affiliated-keywords
   "Collect consecutive affiliated keyword lines (#+attr_html, #+caption, etc.)
    Returns [affiliated-map remaining-lines] where affiliated-map has:
-   {:caption \"...\" :name \"...\" :attr {:html {...} :org {...}}}"
+   {:caption [inline nodes] :name \"...\" :attr {:html {...} :org {...}}}"
   [indexed-lines]
   (loop [[{:keys [line]} & more :as remaining] indexed-lines
          result {:attr {}}]
@@ -1159,7 +1159,7 @@
 
           ;; #+caption: ... -> :caption
           (= kw-lower "caption")
-          (recur more (assoc result :caption (str/trim value)))
+          (recur more (assoc result :caption (parse-inline value)))
 
           ;; #+name: ... -> :name
           (= kw-lower "name")
